@@ -1,1 +1,1 @@
-# food101_transfer_learning
+# food101 Prototipe
