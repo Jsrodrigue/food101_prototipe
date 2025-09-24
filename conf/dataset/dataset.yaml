@@ -1,0 +1,4 @@
+# conf/data/dataset.yaml
+path: FOOD101MINI/data/dataset   # relative to the project root
+url: "" # URL to download dataset
+overwrite: false # If want to overwrite

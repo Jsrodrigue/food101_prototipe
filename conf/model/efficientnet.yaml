@@ -1,0 +1,4 @@
+# conf/model/efficientnet.yaml
+name: efficientnet
+version: b0
+pretrained: true

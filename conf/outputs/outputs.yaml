@@ -1,0 +1,6 @@
+local:
+ path: outputs
+
+mlflow: 
+ path: mlruns
+ experiment_name: food101_experiment

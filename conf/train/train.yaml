@@ -1,0 +1,15 @@
+seed: 42
+batch_size: 32
+epochs: 5
+optimizer: adam
+lr: 0.001
+freeze_backbone: true
+unfreeze_layers: 0 # Number of last unfreeze layers
+subset_percentage: 0.2 # Percentage of dataset
+augmentation: TrivialAugmentWide
+early_stop_patience: 4
+
+scheduler: 
+  type: None
+  step_size: 5
+  gamma: 0.5

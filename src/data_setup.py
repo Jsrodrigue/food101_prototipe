@@ -18,31 +18,33 @@ def create_dataloaders(
     test_transform: transforms.Compose, 
     batch_size: int, 
     num_workers: int = NUM_WORKERS,
-    subset_percentage: float = 1.0,
+    train_subset_percentage: float = 1.0,
     seed: int = 42
 ):
-    """Creates train/test DataLoaders with optional subset sampling and reproducibility."""
+    """Creates train/test DataLoaders. Train can be subsetted; test is always complete."""
+
     # Load datasets
     train_data = datasets.ImageFolder(train_dir, transform=train_transform)
     test_data = datasets.ImageFolder(test_dir, transform=test_transform)
 
-    if subset_percentage < 1.0:
+    # Subsample only train dataset
+    if train_subset_percentage < 1.0:
         random.seed(seed)
-        train_size = int(len(train_data) * subset_percentage)
-        test_size = int(len(test_data) * subset_percentage)
+        train_size = int(len(train_data) * train_subset_percentage)
         train_indices = random.sample(range(len(train_data)), train_size)
-        test_indices = random.sample(range(len(test_data)), test_size)
         train_data = Subset(train_data, train_indices)
-        test_data = Subset(test_data, test_indices)
 
+    # Class names
     class_names = train_data.dataset.classes if isinstance(train_data, Subset) else train_data.classes
 
+    # Dataloaders
     train_dataloader = DataLoader(train_data, batch_size=batch_size, shuffle=True,
                                   num_workers=num_workers, pin_memory=True)
     test_dataloader = DataLoader(test_data, batch_size=batch_size, shuffle=False,
                                  num_workers=num_workers, pin_memory=True)
 
     return train_dataloader, test_dataloader, class_names
+
 
 
 def download_and_extract(url: str, destination: str, overwrite: bool = False, timeout: int = 10):
