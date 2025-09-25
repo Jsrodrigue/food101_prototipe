@@ -4,7 +4,7 @@ import zipfile
 from pathlib import Path
 from io import BytesIO
 import requests
-
+from .utils import set_seed
 import torch
 from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
@@ -27,16 +27,16 @@ def create_dataloaders(
     train_data = datasets.ImageFolder(train_dir, transform=train_transform)
     test_data = datasets.ImageFolder(test_dir, transform=test_transform)
 
+    set_seed(seed)
+
     # Subsample only train dataset
     if train_subset_percentage < 1.0:
-        random.seed(seed)
         train_size = int(len(train_data) * train_subset_percentage)
         train_indices = random.sample(range(len(train_data)), train_size)
         train_data = Subset(train_data, train_indices)
 
     # Class names
     class_names = train_data.dataset.classes if isinstance(train_data, Subset) else train_data.classes
-
     # Dataloaders
     train_dataloader = DataLoader(train_data, batch_size=batch_size, shuffle=True,
                                   num_workers=num_workers, pin_memory=True)

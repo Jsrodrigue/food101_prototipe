@@ -1,7 +1,6 @@
 import sys
 from pathlib import Path
 import os
-from dotenv import load_dotenv
 sys.path.append(str(Path(__file__).resolve().parent))
 
 import hydra
@@ -13,14 +12,10 @@ from torch import nn, optim
 from models import EfficientNetModel, MobileNetV2Model
 from src.data_setup import create_dataloaders, download_and_extract
 from src.engine import train_mlflow
+from src.utils import set_seed
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config.yaml")
 def main(cfg: DictConfig):
-    # Load environment variables from .env
-    load_dotenv()
-    root_path = os.getenv("ROOT_PATH")
-    if not root_path:
-        raise ValueError("ROOT_PATH not defined in environment variables or .env file")
 
     from hydra.utils import get_original_cwd
     import datetime
@@ -44,7 +39,7 @@ def main(cfg: DictConfig):
     cfg.outputs.mlflow.path = str(mlflow_dir)
 
     # Dataset paths
-    dataset_path = Path(root_path) / cfg.dataset.path
+    dataset_path = Path(get_original_cwd()) / cfg.dataset.path
     train_dir = dataset_path / "train"
     test_dir = dataset_path / "test"
 
@@ -80,6 +75,9 @@ def main(cfg: DictConfig):
         seed=cfg.train.seed
     )
     num_classes = len(class_names)
+
+    #set seed 
+    set_seed(cfg.train.seed)
 
     # Initialize model
     if cfg.model.name.lower() == "mobilenet":

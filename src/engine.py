@@ -6,7 +6,7 @@ from typing import Dict, List, Tuple
 from tqdm.auto import tqdm
 import mlflow
 import mlflow.pytorch
-from .utils import save_model
+from .utils import save_model, set_seed
 import pandas as pd
 import torch
 from pathlib import Path
@@ -18,6 +18,7 @@ from tqdm import tqdm
 import mlflow
 import mlflow.pytorch
 from omegaconf import OmegaConf
+
 # -----------------------------
 # EarlyStopping class
 # -----------------------------
@@ -136,9 +137,7 @@ def train_mlflow(
     # -----------------------------
     # Seed for reproducibility
     # -----------------------------
-    torch.manual_seed(seed)
-    if device.type == "cuda":
-        torch.cuda.manual_seed_all(seed)
+    set_seed(seed)
 
     # -----------------------------
     # Local run folder and plots folder

@@ -1,0 +1,29 @@
+dataset:
+  overwrite: false
+  path: data/dataset
+  url: ''
+model:
+  name: efficientnet
+  pretrained: true
+  version: b0
+outputs:
+  local:
+    path: C:\Users\Juan\Desktop\food101Mini\outputs\run_2025-09-25_11-46-15
+  mlflow:
+    experiment_name: food101_experiment
+    path: C:\Users\Juan\Desktop\food101Mini\mlruns
+train:
+  augmentation: TrivialAugmentWide
+  batch_size: 32
+  early_stop_patience: 4
+  epochs: 2
+  freeze_backbone: true
+  lr: 0.001
+  optimizer: adam
+  scheduler:
+    gamma: 0.5
+    step_size: 5
+    type: None
+  seed: 42
+  subset_percentage: 0.2
+  unfreeze_layers: 0
