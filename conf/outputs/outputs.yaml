@@ -1,6 +1,7 @@
 local:
- path: outputs
+  path: outputs   # base para carpetas locales
 
-mlflow: 
- path: mlruns
- experiment_name: food101_experiment
+mlflow:
+  path: mlruns   # carpeta independiente para MLflow
+  experiment_name: food101_experiment
+

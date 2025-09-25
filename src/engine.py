@@ -12,7 +12,12 @@ import torch
 from pathlib import Path
 import matplotlib.pyplot as plt
 import yaml
-
+import matplotlib.pyplot as plt
+from pathlib import Path
+from tqdm import tqdm
+import mlflow
+import mlflow.pytorch
+from omegaconf import OmegaConf
 # -----------------------------
 # EarlyStopping class
 # -----------------------------
@@ -108,7 +113,6 @@ def test_step(
 # MLflow training function
 # -----------------------------
 
-
 def train_mlflow(
     model: torch.nn.Module,
     train_dataloader: torch.utils.data.DataLoader,
@@ -125,113 +129,51 @@ def train_mlflow(
     experiment_name: str = "foodmini_experiments",
     seed: int = 42,
     early_stop_patience: int = 5,
-    save_name: str = "best_model.pth"
+    save_name: str = "best_model.pth",
+    run_name: str = None
 ) -> dict:
-    """
-    Trains a PyTorch model while saving local outputs and logging metrics/models to MLflow.
 
-    Parameters
-    ----------
-    model : torch.nn.Module
-        The PyTorch model to train.
-    train_dataloader : torch.utils.data.DataLoader
-        DataLoader for the training dataset.
-    test_dataloader : torch.utils.data.DataLoader
-        DataLoader for the validation/test dataset.
-    optimizer : torch.optim.Optimizer
-        Optimizer for model parameters.
-    loss_fn : torch.nn.Module
-        Loss function for training.
-    epochs : int
-        Maximum number of epochs to train.
-    device : torch.device, optional
-        Device to train on (CPU or GPU). Default is CPU.
-    scheduler : torch.optim.lr_scheduler._LRScheduler, optional
-        Learning rate scheduler. Default is None.
-    params : dict, optional
-        Dictionary of hyperparameters to log in MLflow. Default is None.
-    config : dict, optional
-        Configuration dictionary to save in outputs/config.yaml. Default is None.
-    outputs_dir : str, optional
-        Base folder to save local outputs (plots, metrics, best model). Default is "outputs".
-    mlflow_dir : str, optional
-        Folder for MLflow tracking logs. Default is "mlruns".
-    experiment_name : str, optional
-        Name of the MLflow experiment. Default is "foodmini_experiments".
-    seed : int, optional
-        Random seed for reproducibility. Default is 42.
-    early_stop_patience : int, optional
-        Number of epochs with no improvement to wait before stopping early. Default is 5.
-    save_name : str, optional
-        Filename to save the best model. Default is "best_model.pth".
-
-    Returns
-    -------
-    dict
-        Dictionary containing lists of metrics per epoch:
-        {
-            "train_loss": [...],
-            "train_acc": [...],
-            "test_loss": [...],
-            "test_acc": [...]
-        }
-
-    Outputs
-    -------
-    Local (outputs/run_timestamp/):
-        - config.yaml (if config provided)
-        - metrics.csv
-        - plots/loss_curve.png
-        - plots/acc_curve.png
-        - best_model.pth
-
-    MLflow (mlruns/):
-        - Metrics per epoch
-        - Best model logged and versioned
-        - Hyperparameters (from `params` if provided)
-
-    Notes
-    -----
-    - EarlyStopping saves the best model locally.
-    - Scheduler is automatically updated per epoch.
-    - MLflow input_example uses the first batch of train_dataloader.
-    """
-
+    # -----------------------------
+    # Seed for reproducibility
+    # -----------------------------
     torch.manual_seed(seed)
     if device.type == "cuda":
         torch.cuda.manual_seed_all(seed)
 
-    # Setup output folder with timestamp
-    now = torch.tensor([])  # dummy for now string
-    run_dir = Path(outputs_dir) / f"run_{torch.randint(0,999999,())}"  # simple unique folder
-    run_dir.mkdir(parents=True, exist_ok=True)
+    # -----------------------------
+    # Local run folder and plots folder
+    # -----------------------------
+    run_dir = Path(outputs_dir)
     plots_dir = run_dir / "plots"
-    plots_dir.mkdir(exist_ok=True)
+    plots_dir.mkdir(exist_ok=True, parents=True)
 
-    from omegaconf import OmegaConf
-
-    # Save config if provided
+    # Save config locally
     if config:
         with open(run_dir / "config.yaml", "w") as f:
-            # convert DictConfig to a standard Python dict
             cfg_dict = OmegaConf.to_container(config, resolve=True)
             yaml.safe_dump(cfg_dict, f)
-
 
     model.to(device)
     results = {"train_loss": [], "train_acc": [], "test_loss": [], "test_acc": []}
 
+    # -----------------------------
     # Configure MLflow
-    mlflow.set_tracking_uri(f"file:{run_dir}/mlruns")
+    # -----------------------------
+    mlflow.set_tracking_uri(f"file:{mlflow_dir}")
     mlflow.set_experiment(experiment_name)
 
     early_stopper = EarlyStopping(patience=early_stop_patience, verbose=True)
     best_model_path = run_dir / save_name
 
-    with mlflow.start_run():
+    # Start MLflow run using the provided run_name
+    with mlflow.start_run(run_name=run_name):
         if params:
             mlflow.log_params(params)
 
+        # Log local folder path
+        mlflow.log_param("local_path", str(run_dir))
+
+        # Training loop
         for epoch in tqdm(range(epochs), desc="Training"):
             train_loss, train_acc = train_step(model, train_dataloader, loss_fn, optimizer, device)
             test_loss, test_acc = test_step(model, test_dataloader, loss_fn, device)
@@ -242,25 +184,26 @@ def train_mlflow(
                 else:
                     scheduler.step()
 
-            # Log metrics
+            # Log metrics to MLflow
             mlflow.log_metrics({
                 "train_loss": train_loss,
                 "train_acc": train_acc,
                 "test_loss": test_loss,
                 "test_acc": test_acc
             }, step=epoch)
+
             if scheduler:
                 mlflow.log_metric("learning_rate", optimizer.param_groups[0]['lr'], step=epoch)
 
-            # Store results
+            # Save metrics for local plotting
             results["train_loss"].append(train_loss)
             results["train_acc"].append(train_acc)
             results["test_loss"].append(test_loss)
             results["test_acc"].append(test_acc)
 
-            print(f"Epoch {epoch+1}/{epochs}: "
-                  f"train_loss={train_loss:.4f}, train_acc={train_acc:.4f}, "
-                  f"test_loss={test_loss:.4f}, test_acc={test_acc:.4f}")
+            print(f"Epoch {epoch+1}/{epochs}: train_loss={train_loss:.4f}, "
+                  f"train_acc={train_acc:.4f}, test_loss={test_loss:.4f}, "
+                  f"test_acc={test_acc:.4f}")
 
             # Early stopping
             early_stopper(test_loss, model, save_path=best_model_path)
@@ -268,7 +211,7 @@ def train_mlflow(
                 print(f"[INFO] Early stopping at epoch {epoch+1}")
                 break
 
-        # Save final best model
+        # Save best model to MLflow
         if best_model_path.exists():
             mlflow.pytorch.log_model(
                 pytorch_model=model,
@@ -277,11 +220,9 @@ def train_mlflow(
                 pip_requirements=["torch>=2.8.0", "torchvision>=0.23.0"]
             )
 
-    # Save metrics CSV
-    df = pd.DataFrame(results)
-    df.to_csv(run_dir / "metrics.csv", index=False)
+    # Save metrics and plots locally
+    pd.DataFrame(results).to_csv(run_dir / "metrics.csv", index=False)
 
-    # Plot loss and accuracy curves
     plt.figure(figsize=(10,5))
     plt.plot(results["train_loss"], label="train_loss")
     plt.plot(results["test_loss"], label="test_loss")
