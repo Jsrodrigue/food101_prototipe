@@ -1,4 +1,8 @@
 # conf/data/dataset.yaml
-path: data/dataset   # relative to the project root
-url: "" # URL to download dataset
-overwrite: false # If want to overwrite
+
+path: ./data/dataset          # la carpeta donde está train/val/test
+url: ""                      # si no quieres descargar nada
+overwrite: false             # no sobreescribir si ya existe
+train_dir: ./data/dataset/train
+val_dir: ./data/dataset/val
+test_dir: ./data/dataset/test

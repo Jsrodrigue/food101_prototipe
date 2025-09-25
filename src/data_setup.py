@@ -1,67 +1,134 @@
 import os
 import random
-import zipfile
-from pathlib import Path
-from io import BytesIO
-import requests
-from .utils import set_seed
-import torch
+
 from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
+from torchvision.transforms import TrivialAugmentWide
 
-NUM_WORKERS = os.cpu_count() 
+from .utils import (
+    set_seed,  # Make sure this function sets seeds for random, numpy, torch, etc.
+)
 
-def create_dataloaders(
-    train_dir: str, 
-    test_dir: str, 
-    train_transform: transforms.Compose,
-    test_transform: transforms.Compose, 
-    batch_size: int, 
-    num_workers: int = NUM_WORKERS,
-    train_subset_percentage: float = 1.0,
-    seed: int = 42
+NUM_WORKERS = os.cpu_count()
+
+
+def get_transforms(augmentation=None, base_transform=None):
+    if base_transform is None:
+        base_transform = transforms.Compose([transforms.ToTensor()])
+    train_transform = base_transform
+    if augmentation:
+        if augmentation.lower() == "trivialaugmentwide":
+            train_transform = transforms.Compose(
+                [TrivialAugmentWide(), base_transform] 
+            )
+        else:
+            raise ValueError(f"Unknown augmentation {augmentation}")
+    test_transform = base_transform
+    return train_transform, test_transform
+
+
+def create_dataloader_from_folder(
+    data_dir,
+    batch_size,
+    transform,
+    subset_percentage=1.0,
+    shuffle=True,
+    seed=42,
+    num_workers=NUM_WORKERS,
 ):
-    """Creates train/test DataLoaders. Train can be subsetted; test is always complete."""
+    """
+    Create a DataLoader from an image folder.
 
-    # Load datasets
-    train_data = datasets.ImageFolder(train_dir, transform=train_transform)
-    test_data = datasets.ImageFolder(test_dir, transform=test_transform)
+    Args:
+        data_dir (str): Path to the folder containing images organized by class.
+        batch_size (int): Batch size for the DataLoader.
+        transform (torchvision.transforms): Transformations to apply to images.
+        subset_percentage (float, optional): Fraction of the dataset to use (0 < subset_percentage <= 1.0).
+        shuffle (bool, optional): Whether to shuffle the data.
+        seed (int, optional): Random seed for reproducibility.
+        num_workers (int, optional): Number of worker processes for loading data.
 
+    Returns:
+        loader (DataLoader): PyTorch DataLoader for the dataset.
+        class_names (list): List of class names in the dataset.
+    """
+    # Set random seeds for reproducibility using utils.set_seed
     set_seed(seed)
 
-    # Subsample only train dataset
-    if train_subset_percentage < 1.0:
-        train_size = int(len(train_data) * train_subset_percentage)
-        train_indices = random.sample(range(len(train_data)), train_size)
-        train_data = Subset(train_data, train_indices)
+    # Create the dataset from the folder
+    dataset = datasets.ImageFolder(data_dir, transform=transform)
 
-    # Class names
-    class_names = train_data.dataset.classes if isinstance(train_data, Subset) else train_data.classes
-    # Dataloaders
-    train_dataloader = DataLoader(train_data, batch_size=batch_size, shuffle=True,
-                                  num_workers=num_workers, pin_memory=True)
-    test_dataloader = DataLoader(test_data, batch_size=batch_size, shuffle=False,
-                                 num_workers=num_workers, pin_memory=True)
+    # Optionally take a random subset of the dataset
+    if 0 < subset_percentage < 1.0:
+        indices = random.sample(
+            range(len(dataset)), int(len(dataset) * subset_percentage)
+        )
+        dataset = Subset(dataset, indices)
 
-    return train_dataloader, test_dataloader, class_names
+    # Create the DataLoader
+    loader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=shuffle,
+        num_workers=num_workers,
+        pin_memory=True,
+    )
+
+    # Get class names
+    class_names = (
+        dataset.dataset.classes if isinstance(dataset, Subset) else dataset.classes
+    )
+
+    return loader, class_names
 
 
+def create_dataloaders(
+    train_dir,
+    test_dir,
+    batch_size,
+    train_transform,
+    test_transform,
+    train_subset_percentage=1.0,
+    seed=42,
+    num_workers=NUM_WORKERS,
+):
+    """
+    Create DataLoaders for training and testing/validation.
 
-def download_and_extract(url: str, destination: str, overwrite: bool = False, timeout: int = 10):
-    """Download a zip file from a URL and extract it to a destination folder."""
-    destination = Path(destination)
-    destination.mkdir(parents=True, exist_ok=True)
-    
-    # Skip download if folder exists
-    if any(destination.iterdir()) and not overwrite:
-        print(f"Destination {destination} already contains files. Skipping download.")
-        return
+    Args:
+        train_dir (str): Path to the training data folder.
+        test_dir (str): Path to the test/validation data folder.
+        batch_size (int): Batch size for both loaders.
+        train_transform (torchvision.transforms): Transformations for training images.
+        test_transform (torchvision.transforms): Transformations for test/validation images.
+        train_subset_percentage (float, optional): Fraction of training data to use.
+        seed (int, optional): Random seed for reproducibility.
+        num_workers (int, optional): Number of worker processes.
 
-    print(f"Downloading from {url} ...")
-    response = requests.get(url, timeout=timeout)
-    response.raise_for_status()
+    Returns:
+        train_loader (DataLoader): DataLoader for training.
+        test_loader (DataLoader): DataLoader for testing/validation.
+        class_names (list): List of class names.
+    """
+    # Create the training DataLoader
+    train_loader, class_names = create_dataloader_from_folder(
+        train_dir,
+        batch_size,
+        transform=train_transform,
+        subset_percentage=train_subset_percentage,
+        shuffle=True,
+        seed=seed,
+        num_workers=num_workers,
+    )
 
-    print("Download completed, extracting...")
-    with zipfile.ZipFile(BytesIO(response.content)) as zf:
-        zf.extractall(destination)
-    print(f"Files extracted to {destination}")
+    # Create the test/validation DataLoader
+    test_loader, _ = create_dataloader_from_folder(
+        test_dir,
+        batch_size,
+        transform=test_transform,
+        shuffle=False,
+        seed=seed,
+        num_workers=num_workers,
+    )
+
+    return train_loader, test_loader, class_names

@@ -5,3 +5,4 @@ mlflow:
   path: mlruns   # carpeta independiente para MLflow
   experiment_name: food101_experiment
 
+run_name: default_run  

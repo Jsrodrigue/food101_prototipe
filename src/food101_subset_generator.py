@@ -1,104 +1,139 @@
-"""
-food101_subset_generator.py
-
-This script downloads the Food101 dataset using torchvision,
-creates a balanced subset with 10 fixed valid classes (100 images per class),
-splits into train/test (80/20), saves the subset in folders ready for ImageFolder,
-compresses the subset into a ZIP, and deletes the original dataset to save space.
-"""
-
 import os
 import random
 import shutil
-from tqdm import tqdm
+from pathlib import Path
+
 from torchvision.datasets import Food101
+from tqdm import tqdm
 
-# -------------------------------
-# Parameters
-# -------------------------------
-root = './data'                # folder to download Food101
-subset_root = './data_subset'  # folder for balanced subset
-zip_path = './food101_subset'  # output zip path (without .zip)
-# 10 valid Food101 classes
-selected_classes = [
-    "sushi", "pizza", "steak", "hamburger", "ramen",
-    "tacos", "pancakes", "lasagna", "ice_cream", "carrot_cake"
-]
-samples_per_class = 100
-train_ratio = 0.8
-random.seed(42)
 
-# -------------------------------
-# Functions
-# -------------------------------
+def prepare_food101_subset(
+    root: str = "./data",
+    subset_root: str = "./data_subset",
+    zip_path: str = "./food101_subset",
+    selected_classes=None,
+    samples_per_class: int = 100,
+    train_ratio: float = 0.7,
+    val_ratio: float = 0.1,
+    test_ratio: float = 0.2,
+    delete_original: bool = True,
+    seed: int = 42,
+) -> tuple:
+    """
+    Create a balanced subset of Food101 with train/val/test splits and optional zip.
+    Returns paths for train and test ready for DataLoader.
+    """
+    random.seed(seed)
+    if selected_classes is None:
+        selected_classes = [
+            "sushi",
+            "pizza",
+            "steak",
+            "hamburger",
+            "ramen",
+            "tacos",
+            "pancakes",
+            "lasagna",
+            "ice_cream",
+            "carrot_cake",
+        ]
+    assert (
+        abs(train_ratio + val_ratio + test_ratio - 1.0) < 1e-6
+    ), "Ratios must sum to 1.0"
 
-def download_food101(root):
-    print("Downloading Food101 dataset...")
-    Food101(root=root, split='train', download=True, transform=None)
-    print("Food101 downloaded")
+    data_dir = Path(root) / "food-101"
+    images_dir = data_dir / "images"
 
-def create_subset_from_folder(source_root, subset_root, selected_classes, samples_per_class, train_ratio):
-    print("Creating balanced subset...")
+    # -------------------------
+    # Step 1: Download if missing
+    # -------------------------
+    if not images_dir.exists():
+        print("Images folder not found. Downloading Food101 dataset...")
+        Food101(root=root, split="train", download=True)
+        Food101(root=root, split="test", download=True)
+        print("Download completed.")
+    else:
+        print("Images folder already exists, skipping download.")
 
-    # Create train/test folders
-    for split in ["train", "test"]:
-        for class_name in selected_classes:
-            os.makedirs(os.path.join(subset_root, split, class_name), exist_ok=True)
+    # -------------------------
+    # Step 2: Create subset
+    # -------------------------
+    subset_root = Path(subset_root)
+    splits = ["train", "val", "test"]
+    for split in splits:
+        for cls in selected_classes:
+            (subset_root / split / cls).mkdir(parents=True, exist_ok=True)
 
-    # Copy images
-    for class_name in tqdm(selected_classes, desc="Processing classes"):
-        class_folder = os.path.join(source_root, class_name)
-        if not os.path.exists(class_folder):
-            raise FileNotFoundError(f"Class folder '{class_folder}' does not exist")
-        
-        images = os.listdir(class_folder)
-        
-        if len(images) < samples_per_class:
-            raise ValueError(f"Class '{class_name}' has fewer than {samples_per_class} images")
-        
-        # Sample images_per_class randomly
-        selected_images = random.sample(images, samples_per_class)
-        split_point = int(train_ratio * samples_per_class)
-        train_images = selected_images[:split_point]
-        test_images  = selected_images[split_point:]
-        
-        # Copy train images
-        for img in train_images:
-            shutil.copy(os.path.join(class_folder, img),
-                        os.path.join(subset_root, "train", class_name, img))
-        
-        # Copy test images
-        for img in test_images:
-            shutil.copy(os.path.join(class_folder, img),
-                        os.path.join(subset_root, "test", class_name, img))
+    n_train = int(samples_per_class * train_ratio)
+    n_val = int(samples_per_class * val_ratio)
+    n_test = samples_per_class - n_train - n_val
+    print(f"Per class: Train={n_train}, Val={n_val}, Test={n_test}")
 
-    print("Balanced subset created at:", subset_root)
+    for cls in tqdm(selected_classes, desc="Processing classes"):
+        class_path = images_dir / cls
+        if not class_path.exists():
+            print(f"Warning: folder {cls} does not exist, skipping.")
+            continue
 
-def zip_subset(subset_root, zip_path):
-    if os.path.exists(zip_path + '.zip'):
-        os.remove(zip_path + '.zip')
-    shutil.make_archive(zip_path, 'zip', subset_root)
-    print(f"Balanced subset zipped successfully at {zip_path}.zip")
+        all_images = os.listdir(class_path)
+        if len(all_images) < samples_per_class:
+            print(f"Warning: {cls} only has {len(all_images)} images, adjusting...")
+            selected_images = all_images
+            total = len(selected_images)
+            n_train_actual = int(total * train_ratio)
+            n_val_actual = int(total * val_ratio)
+            n_test_actual = total - n_train_actual - n_val_actual
+        else:
+            selected_images = random.sample(all_images, samples_per_class)
+            n_train_actual, n_val_actual, n_test_actual = n_train, n_val, n_test
 
-def delete_food101(root):
-    food101_root = os.path.join(root, "food-101")
-    if os.path.exists(food101_root):
-        shutil.rmtree(food101_root)
-        print(f"Deleted original Food101 folder at {food101_root}")
+        train_imgs = selected_images[:n_train_actual]
+        val_imgs = selected_images[n_train_actual : n_train_actual + n_val_actual]
+        test_imgs = selected_images[n_train_actual + n_val_actual :]
 
-# -------------------------------
-# Main
-# -------------------------------
+        for split_name, split_imgs in [
+            ("train", train_imgs),
+            ("val", val_imgs),
+            ("test", test_imgs),
+        ]:
+            for img in split_imgs:
+                shutil.copy2(class_path / img, subset_root / split_name / cls / img)
+
+    print(f"Subset created in {subset_root}")
+
+    # -------------------------
+    # Step 3: Optional zip
+    # -------------------------
+    zip_path = Path(zip_path)
+    if zip_path.with_suffix(".zip").exists():
+        zip_path.with_suffix(".zip").unlink()
+    shutil.make_archive(str(zip_path), "zip", subset_root)
+    print(f"Subset zipped successfully at {zip_path}.zip")
+
+    # -------------------------
+    # Step 4: Delete original if requested
+    # -------------------------
+    if delete_original and data_dir.exists():
+        shutil.rmtree(data_dir)
+        print("Original Food101 dataset deleted.")
+
+    # -------------------------
+    # Step 5: Summary
+    # -------------------------
+    print("\nSubset summary:")
+    for split in splits:
+        print(f"\n{split.upper()}:")
+        total_split = 0
+        for cls in selected_classes:
+            cls_path = subset_root / split / cls
+            count = len(os.listdir(cls_path)) if cls_path.exists() else 0
+            total_split += count
+            print(f"  {cls}: {count}")
+        print(f"  Total {split}: {total_split}")
+
+    # Return paths for train and test
+    return subset_root / "train", subset_root / "test"
+
+
 if __name__ == "__main__":
-    # Step 1: download dataset
-    download_food101(root)
-
-    # Step 2: create subset from the downloaded folder
-    images_folder = os.path.join(root, "food-101", "images")
-    create_subset_from_folder(images_folder, subset_root, selected_classes, samples_per_class, train_ratio)
-
-    # Step 3: zip the subset
-    zip_subset(subset_root, zip_path)
-
-    # Step 4: delete original Food101 to save space
-    delete_food101(root)
+    prepare_food101_subset()

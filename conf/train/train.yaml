@@ -1,15 +1,22 @@
 seed: 42
-batch_size: 32
+batch_size: 64
 epochs: 2
-optimizer: adam
-lr: 0.001
+loss: CrossEntropyLoss
+optimizer: 
+  name: adam
+  lr: 0.001
 freeze_backbone: true
-unfreeze_layers: 0 # Number of last unfreeze layers
-subset_percentage: 0.2 # Percentage of dataset
+unfreeze_layers: 0           # Number of last unfreeze layers
+subset_percentage: 0.3      # Percentage of dataset to use
 augmentation: TrivialAugmentWide
 early_stop_patience: 4
 
 scheduler: 
-  type: None
+  type: None                 # Options: None, ReduceLROnPlateau, StepLR
   step_size: 5
   gamma: 0.5
+
+metrics: ["accuracy", "precision_macro", "recall_macro", "f1_macro"]
+
+# Paths
+data: ${dataset}   
