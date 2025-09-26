@@ -1,0 +1,50 @@
+dataset:
+  mode: local
+  overwrite: false
+  path: data/dataset
+  s3_bucket: None
+  test_dir: data/dataset/test
+  train_dir: data/dataset/train
+  url: ''
+  val_dir: data/dataset/val
+model:
+  name: efficientnet
+  pretrained: true
+  version: b0
+outputs:
+  local:
+    path: C:\Users\Juan\Desktop\food101Mini\outputs\run_2025-09-26_01-49-52
+  mlflow:
+    experiment_name: food101_experiment
+    path: C:\Users\Juan\Desktop\food101Mini\mlruns
+  run_name: run_2025-09-26_01-49-52
+train:
+  augmentation: TrivialAugmentWide
+  batch_size: 64
+  data:
+    mode: local
+    overwrite: false
+    path: data/dataset
+    s3_bucket: None
+    test_dir: data/dataset/test
+    train_dir: data/dataset/train
+    url: ''
+    val_dir: data/dataset/val
+  early_stop_patience: 4
+  epochs: 2
+  loss: CrossEntropyLoss
+  metrics:
+  - accuracy
+  - precision_macro
+  - recall_macro
+  - f1_macro
+  optimizer:
+    lr: 0.001
+    name: adam
+  scheduler:
+    gamma: 0.5
+    step_size: 5
+    type: None
+  seed: 42
+  subset_percentage: 0.3
+  unfreeze_layers: 0
