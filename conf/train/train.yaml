@@ -5,7 +5,6 @@ loss: CrossEntropyLoss
 optimizer: 
   name: adam
   lr: 0.001
-freeze_backbone: true
 unfreeze_layers: 0           # Number of last unfreeze layers
 subset_percentage: 0.3      # Percentage of dataset to use
 augmentation: TrivialAugmentWide

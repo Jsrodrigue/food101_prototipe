@@ -58,6 +58,12 @@ def main(cfg: DictConfig):
     else:
         raise ValueError(f"Unknown model {cfg.model.name}")
     
+    #Freeze backbone
+    model.freeze_backbone()
+
+    # Unfreeze last layers 
+    if cfg.train.unfreeze_layers > 0:
+        model.unfreeze_backbone(cfg.train.unfreeze_layers)
 
     optimizer = optim.Adam(model.model.parameters(), lr=cfg.train.optimizer.lr)
     loss_fn = nn.CrossEntropyLoss()
