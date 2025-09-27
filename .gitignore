@@ -1,9 +1,10 @@
-.env
-.tmp.driveupload
-.tmp.drivedownload
-
 # Python cache
 __pycache__/
-*.pyc
-mlruns
-outputs
+
+# Outputs y logs de MLflow
+outputs/
+mlruns/
+
+.env
+.tmp.drivedownload/
+.tmp.driveupload/

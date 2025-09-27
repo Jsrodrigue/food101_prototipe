@@ -1,4 +1,4 @@
-# Sweep file for Hydra multirun (Food101)
+# sweep_small.yaml - 16 experiments, subset starting at 0.4
 train:
   batch_size:
     - 32
@@ -9,13 +9,14 @@ train:
     - 0.01
 
   unfreeze_layers:
+    - 0
     - 3
 
   augmentation:
     - TrivialAugmentWide
 
   epochs:
-    - 10
+    - 15
 
   scheduler:
     type:
@@ -27,4 +28,5 @@ train:
       - 0.5
 
   subset_percentage:
-    - 0.3
+    - 0.4
+    - 0.8
