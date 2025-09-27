@@ -1,5 +1,5 @@
-torch==2.8.0
-torchvision==0.23.0
+torch==2.8.0+cpu
+torchvision==0.23.0+cpu
 pandas==2.2.2
 numpy==2.0.2
 matplotlib==3.10.0
