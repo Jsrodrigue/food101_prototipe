@@ -1,22 +1,27 @@
 """
 Engine module for PyTorch training and evaluation with MLflow tracking.
 """
+
+import subprocess
 from pathlib import Path
+
 import matplotlib.pyplot as plt
 import mlflow
 import mlflow.pytorch
 import torch
+import yaml
+from hydra.utils import get_original_cwd
+from omegaconf import OmegaConf
 from torch import optim
 from tqdm.auto import tqdm
-import yaml
-from omegaconf import OmegaConf
 
-from .utils import save_model, set_seed
 from .metrics import compute_metrics  # calcula métricas desde logits y labels
+from .utils import save_model, set_seed, log_pytorch_model_mlflow
 
 
 class EarlyStopping:
     """Early stops training if validation loss doesn't improve after patience epochs."""
+
     def __init__(self, patience=5, verbose=False, delta=0.0):
         self.patience = patience
         self.verbose = verbose
@@ -85,7 +90,9 @@ def test_step(model, dataloader, loss_fn, device, metrics_list=None):
     return metrics_dict
 
 
-def train_mlflow(model, train_dataloader, test_dataloader, optimizer, loss_fn, cfg, device=None):
+def train_mlflow(
+    model, train_dataloader, test_dataloader, optimizer, loss_fn, cfg, device=None
+):
     """Train a model using cfg and dataloaders, log metrics to MLflow, save best model locally."""
     set_seed(cfg.train.seed)
     device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -94,9 +101,15 @@ def train_mlflow(model, train_dataloader, test_dataloader, optimizer, loss_fn, c
     # Scheduler
     scheduler = None
     if cfg.train.scheduler.type == "ReduceLROnPlateau":
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", patience=2)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="min", patience=2
+        )
     elif cfg.train.scheduler.type == "StepLR":
-        scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=cfg.train.scheduler.step_size, gamma=cfg.train.scheduler.gamma)
+        scheduler = optim.lr_scheduler.StepLR(
+            optimizer,
+            step_size=cfg.train.scheduler.step_size,
+            gamma=cfg.train.scheduler.gamma,
+        )
 
     # Directories
     run_dir = Path(cfg.outputs.local.path)
@@ -108,9 +121,20 @@ def train_mlflow(model, train_dataloader, test_dataloader, optimizer, loss_fn, c
         yaml.safe_dump(OmegaConf.to_container(cfg, resolve=True), f)
 
     # MLflow
-    mlflow_db_path = Path(cfg.outputs.mlflow.path) / "mlflow.db"
-    mlflow.set_tracking_uri(f"sqlite:///{mlflow_db_path}")
-    mlflow.set_experiment(cfg.outputs.mlflow.experiment_name)
+
+    if cfg.dataset.mode == "aws":
+        # Local temporal solo para MLflow run
+        mlruns_local = Path(get_original_cwd()) / "tmp_mlflow"
+        mlruns_local.mkdir(exist_ok=True)
+        mlflow.set_tracking_uri(f"file://{mlruns_local.resolve()}")
+        mlflow.set_experiment(
+            cfg.aws.mlflow.experiment_name
+        )  # S3 artifact se configura en log_model
+    else:
+        mlflow_dir = Path(get_original_cwd()) / cfg.outputs.local.mlflow.path
+        mlflow_dir.mkdir(exist_ok=True)
+        mlflow.set_tracking_uri(mlflow_dir.resolve().as_uri())
+        mlflow.set_experiment(cfg.outputs.local.mlflow.experiment_name)
 
     early_stopper = EarlyStopping(patience=cfg.train.early_stop_patience, verbose=True)
     best_model_path = run_dir / f"{cfg.model.name}_best.pth"
@@ -121,8 +145,12 @@ def train_mlflow(model, train_dataloader, test_dataloader, optimizer, loss_fn, c
     with mlflow.start_run(run_name=cfg.outputs.run_name):
         mlflow.log_params(OmegaConf.to_container(cfg.train, resolve=True))
         for epoch in tqdm(range(cfg.train.epochs), desc="Training"):
-            train_metrics = train_step(model, train_dataloader, loss_fn, optimizer, device, cfg.train.metrics)
-            test_metrics = test_step(model, test_dataloader, loss_fn, device, cfg.train.metrics)
+            train_metrics = train_step(
+                model, train_dataloader, loss_fn, optimizer, device, cfg.train.metrics
+            )
+            test_metrics = test_step(
+                model, test_dataloader, loss_fn, device, cfg.train.metrics
+            )
 
             # Scheduler step
             if scheduler:
@@ -138,13 +166,12 @@ def train_mlflow(model, train_dataloader, test_dataloader, optimizer, loss_fn, c
                 results[f"train_{key}"].append(train_metrics[key])
                 results[f"test_{key}"].append(test_metrics[key])
 
-            # Print 
+            # Print
             train_str = ", ".join([f"{k} {v:.4f}" for k, v in train_metrics.items()])
             test_str = ", ".join([f"{k} {v:.4f}" for k, v in test_metrics.items()])
 
             print(f"Epoch {epoch+1}: Train: {train_str}")
-            print(f"                 Test: {test_str}\n")
-
+            print(f"        Test: {test_str}\n")
 
             # Early stopping
             early_stopper(test_metrics["loss"], model, save_path=best_model_path)
@@ -153,15 +180,44 @@ def train_mlflow(model, train_dataloader, test_dataloader, optimizer, loss_fn, c
                 break
 
         # Save best model to MLflow
+
         if best_model_path.exists():
-            mlflow.pytorch.log_model(model, "best_model",
-                                     input_example=next(iter(train_dataloader))[0][:1].cpu().numpy())
+             log_pytorch_model_mlflow(model, train_dataloader, model_name="best_model")
 
     # Plots
-    plt.figure(figsize=(10,5))
+    plt.figure(figsize=(10, 5))
     plt.plot(results["train_loss"], label="train_loss")
     plt.plot(results["test_loss"], label="test_loss")
-    plt.xlabel("Epoch"); plt.ylabel("Loss"); plt.legend()
-    plt.savefig(plots_dir / "loss_curve.png"); plt.close()
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.legend()
+    plt.savefig(plots_dir / "loss_curve.png")
+    plt.close()
+
+    if cfg.dataset.mode == "aws":
+        # Subir todos los runs a S3 (métricas + artifacts)
+        subprocess.run(
+            [
+                "aws",
+                "s3",
+                "sync",
+                str(mlruns_local.resolve()),
+                f"s3://{cfg.aws.s3_bucket}/mlruns",
+            ]
+        )
+
+        # Subir checkpoints y modelos
+        subprocess.run(
+            ["aws", "s3", "sync", str(cfg.outputs.local.model_dir), cfg.aws.model_dir]
+        )
+        subprocess.run(
+            [
+                "aws",
+                "s3",
+                "sync",
+                str(cfg.outputs.local.checkpoint_dir),
+                cfg.aws.checkpoint_dir,
+            ]
+        )
 
     return results

@@ -8,3 +8,8 @@ defaults:
 hydra:
   run:
     dir: outputs/${now:%Y-%m-%d_%H-%M-%S}
+
+aws:
+  use_s3: false            
+  region: eu-north-1       
+  bucket: food101mini-data 

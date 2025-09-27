@@ -1,9 +1,12 @@
 import os
 import random
+import subprocess
+from pathlib import Path
 
 from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
 from torchvision.transforms import TrivialAugmentWide
+from torch import cuda
 
 from .utils import (
     set_seed,  # Make sure this function sets seeds for random, numpy, torch, etc.
@@ -18,9 +21,7 @@ def get_transforms(augmentation=None, base_transform=None):
     train_transform = base_transform
     if augmentation:
         if augmentation.lower() == "trivialaugmentwide":
-            train_transform = transforms.Compose(
-                [TrivialAugmentWide(), base_transform] 
-            )
+            train_transform = transforms.Compose([TrivialAugmentWide(), base_transform])
         else:
             raise ValueError(f"Unknown augmentation {augmentation}")
     test_transform = base_transform
@@ -71,7 +72,7 @@ def create_dataloader_from_folder(
         batch_size=batch_size,
         shuffle=shuffle,
         num_workers=num_workers,
-        pin_memory=True,
+        pin_memory=True if cuda.is_available() else False
     )
 
     # Get class names
@@ -132,3 +133,37 @@ def create_dataloaders(
     )
 
     return train_loader, test_loader, class_names
+
+
+def get_data_path(cfg):
+    """
+    Returns the dataset path depending on the execution mode (local or AWS).
+
+    Args:
+        cfg: Hydra/DotDict configuration containing:
+            - cfg.dataset.mode -> "local" or "aws"
+            - cfg.dataset.path -> local relative dataset path
+            - cfg.aws.s3_bucket -> AWS bucket name (required if mode="aws")
+
+    Returns:
+        Path: Local path to the dataset ready to be used in dataloaders.
+
+    Behavior:
+        - If cfg.dataset.mode == "aws":
+            1. Creates the local folder ./data if it doesn't exist.
+            2. Syncs files from S3: s3://<bucket>/data → ./data
+            3. Returns Path("./data")
+        - If cfg.dataset.mode == "local":
+            1. Returns the local path specified in cfg.dataset.path (resolved from get_original_cwd())
+    """
+    if cfg.dataset.mode == "aws":
+        local_data = Path("./data")
+        local_data.mkdir(exist_ok=True)
+        subprocess.run(
+            ["aws", "s3", "sync", f"s3://{cfg.aws.s3_bucket}/data", str(local_data)]
+        )
+        return local_data
+    else:
+        from hydra.utils import get_original_cwd
+
+        return Path(get_original_cwd()) / cfg.dataset.path

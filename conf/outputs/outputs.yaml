@@ -1,8 +1,17 @@
 local:
-  path: outputs   # base para carpetas locales
+  path: outputs
+  model_dir: outputs/models
+  checkpoint_dir: outputs/checkpoints
+  mlflow:
+    path: mlruns
+    experiment_name: food101_experiment
 
-mlflow:
-  path: mlruns   # carpeta independiente para MLflow
-  experiment_name: food101_experiment
+aws:
+  s3_bucket: food101mini-data
+  model_dir: s3://food101mini-data/models
+  checkpoint_dir: s3://food101mini-data/checkpoints
+  mlflow:
+    artifact_location: s3://food101mini-data/mlruns
+    experiment_name: food101_experiment
 
-run_name: default_run  
+run_name: ""

@@ -1,0 +1,30 @@
+# Sweep file for Hydra multirun (Food101)
+train:
+  batch_size:
+    - 32
+    - 64
+
+  lr:
+    - 0.001
+    - 0.01
+
+  unfreeze_layers:
+    - 3
+
+  augmentation:
+    - TrivialAugmentWide
+
+  epochs:
+    - 10
+
+  scheduler:
+    type:
+      - None
+      - StepLR
+    step_size:
+      - 5
+    gamma:
+      - 0.5
+
+  subset_percentage:
+    - 0.3
