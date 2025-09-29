@@ -3,10 +3,11 @@ __pycache__/
 
 # Outputs and logs of MLflow
 outputs/
-mlruns/
-mlruns_aws/
+mlflow/
+mlflow_aws/
 
 .env
+.envrc
 .tmp.drivedownload/
 .tmp.driveupload/
 key.pem

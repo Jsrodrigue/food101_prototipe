@@ -1,23 +1,30 @@
+# -----------------------
+# Makefile for Windows + Conda
+# -----------------------
 
-
+# Name of your conda environment
+CONDA_ENV=food101mini
 
 # -----------------------
 # Launch MLflow UI
 # -----------------------
-# Make sure the environment is activated before running.
 ui:
-	@echo "Launching MLflow UI..."
-		mlflow ui --backend-store-uri sqlite:///content/mlruns/mlflow.db --default-artifact-root ./mlruns/artifacts
-	@echo "MLflow UI running at http://127.0.0.1:5000"
+	@echo use mlflow ui --backend-store-uri "file:///C:/Users/Juan/Desktop/food101Mini/mlflow" --default-artifact-root "C:/Users/Juan/Desktop/food101Mini/mlflow/artifacts
+
+
+# -----------------------
+# Launch MLflow UI AWS
+# -----------------------
+ui-aws:
+	@echo "Launching MLflow UI (AWS)..."
+	call conda activate $(CONDA_ENV) && ^
+	python -m mlflow ui --backend-store-uri ./mlruns_aws --default-artifact-root ./mlruns_aws/artifacts
+	@echo "MLflow UI AWS running at http://127.0.0.1:5000"
 
 # -----------------------
 # Train the model
 # -----------------------
-# Make sure the environment is activated before running.
 train:
 	@echo "Starting training..."
-	$(PYTHON) -m scripts.train
+	python -m scripts.train
 	@echo "Training finished!"
-
-ui-aws:
-	mlflow ui --backend-store-uri sqlite:///mlruns_aws/mlflow.db --default-artifact-root ./mlruns/artifacts

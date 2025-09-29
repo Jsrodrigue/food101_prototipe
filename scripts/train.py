@@ -93,7 +93,7 @@ def main(cfg: DictConfig):
     print("[INFO] Training completed. Best model saved and logged in MLflow.")
     print("[INFO] Sample of loss curve values:")
     print("Train loss:", results["train_loss"][:5])
-    print("Val loss:", results["test_loss"][:5])
+    print("Val loss:", results["val_loss"][:5])
 
 if __name__ == "__main__":
     main()
