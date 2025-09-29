@@ -7,7 +7,7 @@
 # Make sure the environment is activated before running.
 ui:
 	@echo "Launching MLflow UI..."
-	$(PYTHON) -m mlflow ui
+		mlflow ui --backend-store-uri sqlite:///content/mlruns/mlflow.db --default-artifact-root ./mlruns/artifacts
 	@echo "MLflow UI running at http://127.0.0.1:5000"
 
 # -----------------------

@@ -123,7 +123,7 @@ def train_mlflow(model, train_loader, val_loader, optimizer, loss_fn, cfg, devic
         exp_name = cfg.outputs.local.mlflow.experiment_name
     mlflow_dir.mkdir(parents=True, exist_ok=True)
 
-    mlflow.set_tracking_uri(f"sqlite:///{mlflow_dir / 'mlflow.db'}")
+    mlflow.set_tracking_uri(f"file:///{mlflow_dir}")
     mlflow.set_experiment(exp_name)
 
     # Artifacts
