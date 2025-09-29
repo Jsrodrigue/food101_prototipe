@@ -9,7 +9,7 @@ from torch import optim
 from tqdm import tqdm
 
 from .metrics import compute_metrics
-from .utils import log_hyperparams_mlflow, save_model, set_seed, upload_folder_to_s3
+from .utils import log_hyperparams_mlflow, set_seed, upload_folder_to_s3
 
 
 class EarlyStopping:
@@ -25,12 +25,10 @@ class EarlyStopping:
         self.best_loss = None
         self.early_stop = False
 
-    def __call__(self, val_loss, model=None, save_path=None):
+    def __call__(self, val_loss: float):
         if self.best_loss is None or val_loss < self.best_loss - self.delta:
             self.best_loss = val_loss
             self.counter = 0
-            if model and save_path:
-                save_model(model, save_path.parent, save_path.name)
         else:
             self.counter += 1
             if self.verbose:
@@ -100,7 +98,6 @@ def test_step(model, dataloader, loss_fn, device, metrics_list=None):
 def train_mlflow(model, train_loader, val_loader, optimizer, loss_fn, cfg, device=None):
     """
     Train a PyTorch model and log metrics, plots, and models to MLflow.
-
     All artifacts are stored within the MLflow run folder.
     """
     set_seed(cfg.train.seed)
@@ -128,8 +125,8 @@ def train_mlflow(model, train_loader, val_loader, optimizer, loss_fn, cfg, devic
     run_name = cfg.outputs.run_name or f"run_{int(time.time())}"
 
     # Initialize early stopping
-    best_model_path = None  # will store model inside MLflow artifact_path
     early_stopper = EarlyStopping(patience=cfg.train.early_stop_patience, verbose=True)
+    best_model_loss = float("inf")
 
     # Prepare metrics storage
     results = {f"train_{m}": [] for m in cfg.train.metrics + ["loss"]}
@@ -164,12 +161,12 @@ def train_mlflow(model, train_loader, val_loader, optimizer, loss_fn, cfg, devic
             print(f"Epoch {epoch+1}: Train: {train_str}")
             print(f"        Val: {val_str}\n")
 
-            # Early stopping, save best model inside MLflow run
-            if val_metrics["loss"] < (early_stopper.best_loss or float("inf")):
-                best_model_path = "checkpoints/best_model.pth"
+            # Early stopping + guardar mejor modelo en MLflow
+            if val_metrics["loss"] < best_model_loss:
+                best_model_loss = val_metrics["loss"]
                 mlflow.pytorch.log_model(model, artifact_path="checkpoints")
-            early_stopper(val_metrics["loss"])
 
+            early_stopper(val_metrics["loss"])
             if early_stopper.early_stop:
                 print(f"[INFO] Early stopping at epoch {epoch+1}")
                 break
