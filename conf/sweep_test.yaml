@@ -6,10 +6,16 @@ defaults:
   - outputs: outputs
 
 hydra:
+  mode: MULTIRUN
   run:
-    dir: outputs/${now:%Y-%m-%d_%H-%M-%S}
+    dir: outputs/sweep_${now:%Y-%m-%d_%H-%M-%S}
 
 aws:
   use_s3: false            
   region: eu-north-1       
   bucket: food101mini-data 
+
+train:
+  batch_size:
+    - 16
+    - 32

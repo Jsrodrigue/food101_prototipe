@@ -1,9 +1,10 @@
-# conf/data/dataset.yaml
-
 mode: local
-path: data/dataset        # carpeta local con train/val/test
-url: ""                   # si no quieres descargar nada
-overwrite: false          # no sobrescribir si ya existe
-s3_bucket: food101mini-data  # solo el nombre del bucket
-
+path: data/dataset         # for local use
+url: ""                    
+overwrite: false   
+aws:       
+  s3_bucket: food101mini-data
+  s3_prefix: data/dataset/        
+  train_prefix: data/dataset/train        
+  val_prefix: data/dataset/val
 

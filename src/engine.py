@@ -1,26 +1,24 @@
-"""
-Engine module for PyTorch training and evaluation with MLflow tracking.
-"""
-
-import subprocess
 from pathlib import Path
 
 import matplotlib.pyplot as plt
 import mlflow
 import mlflow.pytorch
 import torch
-import yaml
-from hydra.utils import get_original_cwd
-from omegaconf import OmegaConf
 from torch import optim
 from tqdm.auto import tqdm
 
-from .metrics import compute_metrics  # calcula métricas desde logits y labels
-from .utils import save_model, set_seed, log_pytorch_model_mlflow
+from .metrics import compute_metrics
+from .utils import (
+    log_hyperparams_mlflow,
+    log_pytorch_model_mlflow,
+    save_model,
+    set_seed,
+    upload_folder_to_s3,
+)
 
 
 class EarlyStopping:
-    """Early stops training if validation loss doesn't improve after patience epochs."""
+    """Stop training if validation loss doesn't improve after patience epochs."""
 
     def __init__(self, patience=5, verbose=False, delta=0.0):
         self.patience = patience
@@ -48,10 +46,14 @@ def train_step(model, dataloader, loss_fn, optimizer, device, metrics_list=None)
     model.train()
     total_loss, all_preds, all_labels = 0.0, [], []
 
-    for X, y in dataloader:
+    # for X, y in dataloader:
+    for i, (X, y) in enumerate(dataloader):
         X, y = X.to(device), y.to(device)
+        y = y.long()  # <-- asegurar tipo correcto
         optimizer.zero_grad()
         outputs = model(X)
+
+
         loss = loss_fn(outputs, y)
         loss.backward()
         optimizer.step()
@@ -73,14 +75,18 @@ def test_step(model, dataloader, loss_fn, device, metrics_list=None):
     total_loss, all_preds, all_labels = 0.0, [], []
 
     with torch.inference_mode():
-        for X, y in dataloader:
+        # for X, y in dataloader:
+        for i, (X, y) in enumerate(dataloader):
             X, y = X.to(device), y.to(device)
+            y = y.long()  # <-- asegurar tipo correcto
             outputs = model(X)
-            loss = loss_fn(outputs, y)
 
+
+            loss = loss_fn(outputs, y)
             total_loss += loss.item()
             all_preds.append(outputs)
             all_labels.append(y)
+
 
     avg_loss = total_loss / len(dataloader)
     preds = torch.cat(all_preds).argmax(dim=1)
@@ -90,10 +96,7 @@ def test_step(model, dataloader, loss_fn, device, metrics_list=None):
     return metrics_dict
 
 
-def train_mlflow(
-    model, train_dataloader, test_dataloader, optimizer, loss_fn, cfg, device=None
-):
-    """Train a model using cfg and dataloaders, log metrics to MLflow, save best model locally."""
+def train_mlflow(model, train_loader, val_loader, optimizer, loss_fn, cfg, device=None):
     set_seed(cfg.train.seed)
     device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
@@ -111,113 +114,82 @@ def train_mlflow(
             gamma=cfg.train.scheduler.gamma,
         )
 
-    # Directories
-    run_dir = Path(cfg.outputs.local.path)
-    plots_dir = run_dir / "plots"
-    plots_dir.mkdir(parents=True, exist_ok=True)
-
-    # Save config
-    with open(run_dir / "config.yaml", "w") as f:
-        yaml.safe_dump(OmegaConf.to_container(cfg, resolve=True), f)
-
-    # MLflow
-
-    if cfg.dataset.mode == "aws":
-        # Local temporal solo para MLflow run
-        mlruns_local = Path(get_original_cwd()) / "tmp_mlflow"
-        mlruns_local.mkdir(exist_ok=True)
-        mlflow.set_tracking_uri(f"file://{mlruns_local.resolve()}")
-        mlflow.set_experiment(
-            cfg.aws.mlflow.experiment_name
-        )  # S3 artifact se configura en log_model
+    # MLflow setup
+    if cfg.outputs.mode == "aws":
+        mlflow_dir = Path(cfg.outputs.aws.mlflow.path)
+        exp_name = cfg.outputs.aws.mlflow.experiment_name
     else:
-        mlflow_dir = Path(get_original_cwd()) / cfg.outputs.local.mlflow.path
-        mlflow_dir.mkdir(exist_ok=True)
-        mlflow.set_tracking_uri(mlflow_dir.resolve().as_uri())
-        mlflow.set_experiment(cfg.outputs.local.mlflow.experiment_name)
+        mlflow_dir = Path(cfg.outputs.local.mlflow.path)
+        exp_name = cfg.outputs.local.mlflow.experiment_name
+    mlflow_dir.mkdir(parents=True, exist_ok=True)
 
+    mlflow.set_tracking_uri(f"sqlite:///{mlflow_dir / 'mlflow.db'}")
+    mlflow.set_experiment(exp_name)
+
+    # Artifacts
+    artifacts_dir = mlflow_dir /cfg.outputs.run_name / "artifacts"
+    plots_dir = mlflow_dir /cfg.outputs.run_name / "plots"
+    checkpoints_dir = artifacts_dir / "checkpoints"
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    checkpoints_dir.mkdir(parents=True, exist_ok=True)
+
+    best_model_path = checkpoints_dir / f"{cfg.model.name}_best.pth"
     early_stopper = EarlyStopping(patience=cfg.train.early_stop_patience, verbose=True)
-    best_model_path = run_dir / f"{cfg.model.name}_best.pth"
 
     results = {f"train_{m}": [] for m in cfg.train.metrics + ["loss"]}
     results.update({f"test_{m}": [] for m in cfg.train.metrics + ["loss"]})
 
     with mlflow.start_run(run_name=cfg.outputs.run_name):
-        mlflow.log_params(OmegaConf.to_container(cfg.train, resolve=True))
+        log_hyperparams_mlflow(cfg, loss_fn)
         for epoch in tqdm(range(cfg.train.epochs), desc="Training"):
             train_metrics = train_step(
-                model, train_dataloader, loss_fn, optimizer, device, cfg.train.metrics
+                model, train_loader, loss_fn, optimizer, device, cfg.train.metrics
             )
-            test_metrics = test_step(
-                model, test_dataloader, loss_fn, device, cfg.train.metrics
+            val_metrics = test_step(
+                model, val_loader, loss_fn, device, cfg.train.metrics
             )
 
-            # Scheduler step
             if scheduler:
                 if isinstance(scheduler, optim.lr_scheduler.ReduceLROnPlateau):
-                    scheduler.step(test_metrics["loss"])
+                    scheduler.step(val_metrics["loss"])
                 else:
                     scheduler.step()
 
-            # Log metrics
             for key in train_metrics:
                 mlflow.log_metric(f"train_{key}", train_metrics[key], step=epoch)
-                mlflow.log_metric(f"test_{key}", test_metrics[key], step=epoch)
+                mlflow.log_metric(f"val_{key}", val_metrics[key], step=epoch)
                 results[f"train_{key}"].append(train_metrics[key])
-                results[f"test_{key}"].append(test_metrics[key])
+                results[f"test_{key}"].append(val_metrics[key])
 
-            # Print
             train_str = ", ".join([f"{k} {v:.4f}" for k, v in train_metrics.items()])
-            test_str = ", ".join([f"{k} {v:.4f}" for k, v in test_metrics.items()])
-
+            val_str = ", ".join([f"{k} {v:.4f}" for k, v in val_metrics.items()])
             print(f"Epoch {epoch+1}: Train: {train_str}")
-            print(f"        Test: {test_str}\n")
+            print(f"        Val: {val_str}\n")
 
-            # Early stopping
-            early_stopper(test_metrics["loss"], model, save_path=best_model_path)
+            early_stopper(val_metrics["loss"], model, save_path=best_model_path)
             if early_stopper.early_stop:
                 print(f"[INFO] Early stopping at epoch {epoch+1}")
                 break
 
-        # Save best model to MLflow
-
         if best_model_path.exists():
-             log_pytorch_model_mlflow(model, train_dataloader, model_name="best_model")
+            log_pytorch_model_mlflow(
+                model, model_name="best_model", artifact_dir=artifacts_dir
+            )
 
-    # Plots
+    # Loss plot
     plt.figure(figsize=(10, 5))
     plt.plot(results["train_loss"], label="train_loss")
-    plt.plot(results["test_loss"], label="test_loss")
+    plt.plot(results["test_loss"], label="val_loss")
     plt.xlabel("Epoch")
     plt.ylabel("Loss")
     plt.legend()
     plt.savefig(plots_dir / "loss_curve.png")
     plt.close()
 
-    if cfg.dataset.mode == "aws":
-        # Subir todos los runs a S3 (métricas + artifacts)
-        subprocess.run(
-            [
-                "aws",
-                "s3",
-                "sync",
-                str(mlruns_local.resolve()),
-                f"s3://{cfg.aws.s3_bucket}/mlruns",
-            ]
-        )
-
-        # Subir checkpoints y modelos
-        subprocess.run(
-            ["aws", "s3", "sync", str(cfg.outputs.local.model_dir), cfg.aws.model_dir]
-        )
-        subprocess.run(
-            [
-                "aws",
-                "s3",
-                "sync",
-                str(cfg.outputs.local.checkpoint_dir),
-                cfg.aws.checkpoint_dir,
-            ]
+    # Upload to S3 if AWS
+    if cfg.outputs.mode == "aws":
+        upload_folder_to_s3(
+            mlflow_dir, cfg.dataset.aws.s3_bucket, f"{cfg.outputs.aws.s3_prefix}/mlruns"
         )
 
     return results

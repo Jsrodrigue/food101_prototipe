@@ -1,11 +1,15 @@
 # Python cache
 __pycache__/
 
-# Outputs y logs de MLflow
+# Outputs and logs of MLflow
 outputs/
 mlruns/
+mlruns_aws/
 
 .env
 .tmp.drivedownload/
 .tmp.driveupload/
 key.pem
+multirun/
+tmp_data
+tmp_experiment/

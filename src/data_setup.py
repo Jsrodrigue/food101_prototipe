@@ -1,16 +1,14 @@
 import os
 import random
-import subprocess
 from pathlib import Path
 
+from hydra.utils import get_original_cwd
+from torch import cuda
 from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
 from torchvision.transforms import TrivialAugmentWide
-from torch import cuda
 
-from .utils import (
-    set_seed,  # Make sure this function sets seeds for random, numpy, torch, etc.
-)
+from .utils import set_seed
 
 NUM_WORKERS = os.cpu_count()
 
@@ -72,7 +70,7 @@ def create_dataloader_from_folder(
         batch_size=batch_size,
         shuffle=shuffle,
         num_workers=num_workers,
-        pin_memory=True if cuda.is_available() else False
+        pin_memory=True if cuda.is_available() else False,
     )
 
     # Get class names
@@ -138,32 +136,58 @@ def create_dataloaders(
 def get_data_path(cfg):
     """
     Returns the dataset path depending on the execution mode (local or AWS).
-
-    Args:
-        cfg: Hydra/DotDict configuration containing:
-            - cfg.dataset.mode -> "local" or "aws"
-            - cfg.dataset.path -> local relative dataset path
-            - cfg.aws.s3_bucket -> AWS bucket name (required if mode="aws")
-
-    Returns:
-        Path: Local path to the dataset ready to be used in dataloaders.
-
-    Behavior:
-        - If cfg.dataset.mode == "aws":
-            1. Creates the local folder ./data if it doesn't exist.
-            2. Syncs files from S3: s3://<bucket>/data → ./data
-            3. Returns Path("./data")
-        - If cfg.dataset.mode == "local":
-            1. Returns the local path specified in cfg.dataset.path (resolved from get_original_cwd())
     """
     if cfg.dataset.mode == "aws":
-        local_data = Path("./data")
-        local_data.mkdir(exist_ok=True)
-        subprocess.run(
-            ["aws", "s3", "sync", f"s3://{cfg.aws.s3_bucket}/data", str(local_data)]
-        )
-        return local_data
+        # Instead of syncing every time, use tmp_data folder downloaded by train.py
+        return Path(get_original_cwd()) / "tmp_data"
     else:
-        from hydra.utils import get_original_cwd
-
         return Path(get_original_cwd()) / cfg.dataset.path
+
+        # Function to recursively download S3 folder to local
+
+def download_s3_folder(bucket, prefix, local_path: Path, s3):
+    """
+    Recursively download all files from an S3 folder (prefix) to a local path.
+    Skips files that already exist locally.
+
+    Args:
+        bucket (str): Name of the S3 bucket.
+        prefix (str): The S3 folder prefix to download.
+        local_path (Path): Local folder where files will be stored.
+        s3 (boto3.client): Boto3 S3 client instance.
+    """
+    # Ensure the base local directory exists
+    local_path.mkdir(parents=True, exist_ok=True)
+
+    paginator = s3.get_paginator("list_objects_v2")
+    downloaded_count = 0
+    skipped_count = 0
+
+    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
+        if "Contents" not in page:
+            continue
+
+        for obj in page.get("Contents", []):
+            key = obj["Key"]
+
+            # Skip pseudo-directories
+            if key.endswith("/"):
+                continue
+
+            # Create relative path inside local_path
+            relative_path = Path("/".join(key.split("/")[1:]))  
+            file_path = local_path / relative_path
+
+            # Skip if file already exists
+            if file_path.exists():
+                skipped_count += 1
+                continue
+
+            # Ensure parent directories exist
+            file_path.parent.mkdir(parents=True, exist_ok=True)
+
+            # Download the file
+            s3.download_file(bucket, key, str(file_path))
+            downloaded_count += 1
+
+    print(f"[INFO] S3 download completed. Downloaded {downloaded_count} files, skipped {skipped_count} existing files.")

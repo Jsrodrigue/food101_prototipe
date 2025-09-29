@@ -1,16 +1,21 @@
+mode: local
+
 local:
   path: outputs
   model_dir: outputs/models
   checkpoint_dir: outputs/checkpoints
   mlflow:
     path: mlruns
+    artifact_location: s3://food101mini-data/mlruns
     experiment_name: food101_experiment
 
 aws:
   s3_bucket: food101mini-data
+  s3_prefix: outputs
   model_dir: s3://food101mini-data/models
   checkpoint_dir: s3://food101mini-data/checkpoints
   mlflow:
+    path: mlruns_aws
     artifact_location: s3://food101mini-data/mlruns
     experiment_name: food101_experiment
 

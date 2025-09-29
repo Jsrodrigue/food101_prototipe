@@ -1,5 +1,5 @@
-torch==2.8.0+cpu
-torchvision==0.23.0+cpu
+torch==2.8.0
+torchvision==0.23.0
 pandas==2.2.2
 numpy==2.0.2
 matplotlib==3.10.0
@@ -9,3 +9,4 @@ mlflow==3.4.0
 hydra-core==1.3.2        # for configs
 pyyaml>=6.0              # Hydra uses YAML
 python-dotenv>=1.0.0
+boto3==1.28.0 # For use buckets in AWS
