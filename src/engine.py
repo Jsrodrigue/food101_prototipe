@@ -8,6 +8,7 @@ from tqdm import tqdm
 import datetime
 from hydra.utils import get_original_cwd
 from .metrics import compute_metrics
+import json
 from .utils import (
     log_hyperparams_mlflow,
     set_seed,
@@ -124,15 +125,22 @@ def train_mlflow(model, train_loader, val_loader, optimizer, loss_fn, cfg, devic
         )
 
     # --- MLflow setup ---
-    mlflow_dir = Path(get_original_cwd()) / (cfg.outputs.local.mlflow.path if cfg.outputs.mode == "local" else cfg.outputs.aws.mlflow.path)
+    mlflow_dir = Path(get_original_cwd()) / (
+        cfg.outputs.local.mlflow.path if cfg.outputs.mode == "local" else cfg.outputs.aws.mlflow.path
+    )
     mlflow_dir.mkdir(parents=True, exist_ok=True)
-    mlflow.set_tracking_uri(mlflow_dir.resolve().as_uri())  # <-- cambio principal
-    exp_name = cfg.outputs.local.mlflow.experiment_name if cfg.outputs.mode == "local" else cfg.outputs.aws.mlflow.experiment_name
+    mlflow.set_tracking_uri(mlflow_dir.resolve().as_uri())
+    exp_name = (
+        cfg.outputs.local.mlflow.experiment_name
+        if cfg.outputs.mode == "local"
+        else cfg.outputs.aws.mlflow.experiment_name
+    )
     mlflow.set_experiment(exp_name)
     run_name = cfg.outputs.run_name or datetime.datetime.now().strftime("run_%Y%m%d_%H%M%S")
 
     early_stopper = EarlyStopping(patience=cfg.train.early_stop_patience, verbose=True)
     best_model_loss = float("inf")
+    best_model_epoch = -1
 
     # --- Metrics storage ---
     results = {f"train_{m}": [] for m in cfg.train.metrics + ["loss"]}
@@ -167,11 +175,27 @@ def train_mlflow(model, train_loader, val_loader, optimizer, loss_fn, cfg, devic
             print(f"        Val: {val_str}\n")
 
             # --- Early stopping & best model logging ---
-            best_model_loss = update_best_model(model, val_metrics["loss"], best_model_loss)
+            best_model_loss, is_new_best = update_best_model(
+                model, val_metrics, best_model_loss, cfg, epoch
+            )
+            if is_new_best:
+                best_model_epoch = epoch
+
             early_stopper(val_metrics["loss"])
             if early_stopper.early_stop:
                 print(f"[INFO] Early stopping at epoch {epoch+1}")
                 break
+
+        # --- Add epochs info ---
+        results["epochs"] = list(range(len(results["train_loss"])))
+        results["best_epoch"] = best_model_epoch
+
+        # --- Save results JSON ---
+        json_path = Path("training_results.json")
+        with open(json_path, "w") as f:
+            json.dump(results, f, indent=4)
+        mlflow.log_artifact(str(json_path), artifact_path="metrics")
+        json_path.unlink()
 
         # --- Log loss curve ---
         plot_path = log_loss_curve(results)
