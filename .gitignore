@@ -16,3 +16,4 @@ key.pem
 multirun/
 tmp_data
 tmp_experiment/
+makefile

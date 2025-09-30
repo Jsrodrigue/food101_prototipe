@@ -6,13 +6,15 @@ from pathlib import Path
 import mlflow
 from tqdm import tqdm
 import datetime
+from hydra.utils import get_original_cwd
 from .metrics import compute_metrics
 from .utils import (
     log_hyperparams_mlflow,
     set_seed,
     upload_folder_to_s3,
     log_loss_curve, 
-    update_best_model
+    update_best_model,
+    log_loss_curve_mlflow
 )
 
 
@@ -122,10 +124,10 @@ def train_mlflow(model, train_loader, val_loader, optimizer, loss_fn, cfg, devic
         )
 
     # --- MLflow setup ---
-    mlflow_dir = Path(cfg.outputs.local.mlflow.path) if cfg.outputs.mode == "local" else Path(cfg.outputs.aws.mlflow.path)
-    exp_name = cfg.outputs.local.mlflow.experiment_name if cfg.outputs.mode == "local" else cfg.outputs.aws.mlflow.experiment_name
+    mlflow_dir = Path(get_original_cwd()) / (cfg.outputs.local.mlflow.path if cfg.outputs.mode == "local" else cfg.outputs.aws.mlflow.path)
     mlflow_dir.mkdir(parents=True, exist_ok=True)
-    mlflow.set_tracking_uri(f"file:///{mlflow_dir.resolve()}")
+    mlflow.set_tracking_uri(mlflow_dir.resolve().as_uri())  # <-- cambio principal
+    exp_name = cfg.outputs.local.mlflow.experiment_name if cfg.outputs.mode == "local" else cfg.outputs.aws.mlflow.experiment_name
     mlflow.set_experiment(exp_name)
     run_name = cfg.outputs.run_name or datetime.datetime.now().strftime("run_%Y%m%d_%H%M%S")
 
@@ -165,7 +167,7 @@ def train_mlflow(model, train_loader, val_loader, optimizer, loss_fn, cfg, devic
             print(f"        Val: {val_str}\n")
 
             # --- Early stopping & best model logging ---
-            best_model_loss = update_best_model(model, val_metrics["loss"], best_model_loss, cfg.outputs.local.mlflow.artifact_dir)
+            best_model_loss = update_best_model(model, val_metrics["loss"], best_model_loss)
             early_stopper(val_metrics["loss"])
             if early_stopper.early_stop:
                 print(f"[INFO] Early stopping at epoch {epoch+1}")
@@ -173,8 +175,7 @@ def train_mlflow(model, train_loader, val_loader, optimizer, loss_fn, cfg, devic
 
         # --- Log loss curve ---
         plot_path = log_loss_curve(results)
-        mlflow.log_artifact(plot_path, artifact_path="plots")
-        plot_path.unlink()  # remove local temp file
+        log_loss_curve_mlflow(plot_path, artifact_path="plots")
 
     # --- Upload to S3 if AWS ---
     if cfg.outputs.mode == "aws":
