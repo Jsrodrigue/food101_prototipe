@@ -5,8 +5,8 @@ local:
   model_dir: outputs/models
   checkpoint_dir: outputs/checkpoints
   mlflow:
-    path: mlflow
-    artifact_location: mlflow/artifacts
+    path: mlruns
+    artifact_dir: artifacts
     experiment_name: food101_experiment
 
 aws:
@@ -16,7 +16,7 @@ aws:
   checkpoint_dir: s3://food101mini-data/checkpoints
   mlflow:
     path: mlruns_aws
-    artifact_location: s3://food101mini-data/mlflow
+    artifact_dir: artifacts
     experiment_name: food101_experiment
 
 run_name: ""

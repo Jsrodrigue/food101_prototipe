@@ -90,10 +90,6 @@ def main(cfg: DictConfig):
     print("[INFO] Starting training...")
     results = train_mlflow(model.model, train_loader, val_loader, optimizer, loss_fn, cfg, device)
 
-    print("[INFO] Training completed. Best model saved and logged in MLflow.")
-    print("[INFO] Sample of loss curve values:")
-    print("Train loss:", results["train_loss"][:5])
-    print("Val loss:", results["val_loss"][:5])
-
+   
 if __name__ == "__main__":
     main()

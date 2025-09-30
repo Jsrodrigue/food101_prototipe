@@ -1,15 +1,10 @@
-# -----------------------
-# Makefile for Windows + Conda
-# -----------------------
 
-# Name of your conda environment
-CONDA_ENV=food101mini
 
 # -----------------------
 # Launch MLflow UI
 # -----------------------
 ui:
-	@echo use mlflow ui --backend-store-uri "file:///C:/Users/Juan/Desktop/food101Mini/mlflow" --default-artifact-root "C:/Users/Juan/Desktop/food101Mini/mlflow/artifacts
+	@echo use mlflow ui --backend-store-uri "file:///C:/Users/Juan/Desktop/food101Mini/mlflow" --default-artifact-root "C:/Users/Juan/Desktop/food101Mini/mlflow/artifacts"
 
 
 # -----------------------
@@ -26,5 +21,6 @@ ui-aws:
 # -----------------------
 train:
 	@echo "Starting training..."
-	python -m scripts.train
+	python -m scripts.train $(ARGS)
 	@echo "Training finished!"
+

@@ -1,22 +1,25 @@
-import time
-from pathlib import Path
+# src/train_engine.py
 
-import matplotlib.pyplot as plt
-import mlflow
-import mlflow.pytorch
 import torch
 from torch import optim
+from pathlib import Path
+import mlflow
 from tqdm import tqdm
-
+import datetime
 from .metrics import compute_metrics
-from .utils import log_hyperparams_mlflow, set_seed, upload_folder_to_s3
+from .utils import (
+    log_hyperparams_mlflow,
+    set_seed,
+    upload_folder_to_s3,
+    log_loss_curve, 
+    update_best_model
+)
 
 
 class EarlyStopping:
     """
     Early stops the training if validation loss doesn't improve after a given patience.
     """
-
     def __init__(self, patience=5, verbose=False, delta=0.0):
         self.patience = patience
         self.verbose = verbose
@@ -36,6 +39,8 @@ class EarlyStopping:
             if self.counter >= self.patience:
                 self.early_stop = True
 
+
+# -------------------- TRAIN & EVAL -------------------- #
 
 def train_step(model, dataloader, loss_fn, optimizer, device, metrics_list=None):
     """
@@ -67,9 +72,9 @@ def train_step(model, dataloader, loss_fn, optimizer, device, metrics_list=None)
     return metrics_dict
 
 
-def test_step(model, dataloader, loss_fn, device, metrics_list=None):
+def eval_one_epoch(model, dataloader, loss_fn, device, metrics_list=None):
     """
-    Perform one validation/test epoch.
+    Evaluation step (used for validation or test).
     """
     model.eval()
     total_loss = 0.0
@@ -79,7 +84,6 @@ def test_step(model, dataloader, loss_fn, device, metrics_list=None):
         for X, y in dataloader:
             X, y = X.to(device), y.to(device)
             y = y.long()
-
             outputs = model(X)
             loss = loss_fn(outputs, y)
 
@@ -95,16 +99,18 @@ def test_step(model, dataloader, loss_fn, device, metrics_list=None):
     return metrics_dict
 
 
+
+# -------------------- MAIN TRAIN MLflow -------------------- #
+
 def train_mlflow(model, train_loader, val_loader, optimizer, loss_fn, cfg, device=None):
     """
-    Train a PyTorch model and log metrics, plots, and models to MLflow.
-    All artifacts are stored within the MLflow run folder.
+    Train a PyTorch model and log metrics, plots, and best model to MLflow.
     """
     set_seed(cfg.train.seed)
     device = device or torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
-    # Set scheduler if defined
+    # --- Scheduler setup ---
     scheduler = None
     if cfg.train.scheduler.type == "ReduceLROnPlateau":
         scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", patience=2)
@@ -115,76 +121,62 @@ def train_mlflow(model, train_loader, val_loader, optimizer, loss_fn, cfg, devic
             gamma=cfg.train.scheduler.gamma,
         )
 
-    # Setup MLflow
+    # --- MLflow setup ---
     mlflow_dir = Path(cfg.outputs.local.mlflow.path) if cfg.outputs.mode == "local" else Path(cfg.outputs.aws.mlflow.path)
     exp_name = cfg.outputs.local.mlflow.experiment_name if cfg.outputs.mode == "local" else cfg.outputs.aws.mlflow.experiment_name
     mlflow_dir.mkdir(parents=True, exist_ok=True)
     mlflow.set_tracking_uri(f"file:///{mlflow_dir.resolve()}")
     mlflow.set_experiment(exp_name)
+    run_name = cfg.outputs.run_name or datetime.datetime.now().strftime("run_%Y%m%d_%H%M%S")
 
-    run_name = cfg.outputs.run_name or f"run_{int(time.time())}"
-
-    # Initialize early stopping
     early_stopper = EarlyStopping(patience=cfg.train.early_stop_patience, verbose=True)
     best_model_loss = float("inf")
 
-    # Prepare metrics storage
+    # --- Metrics storage ---
     results = {f"train_{m}": [] for m in cfg.train.metrics + ["loss"]}
     results.update({f"val_{m}": [] for m in cfg.train.metrics + ["loss"]})
 
     with mlflow.start_run(run_name=run_name):
-        # Log hyperparameters
         log_hyperparams_mlflow(cfg, loss_fn)
 
         for epoch in tqdm(range(cfg.train.epochs), desc="Training"):
-            # Train and validate
+            # --- TRAIN & VALIDATION ---
             train_metrics = train_step(model, train_loader, loss_fn, optimizer, device, cfg.train.metrics)
-            val_metrics = test_step(model, val_loader, loss_fn, device, cfg.train.metrics)
+            val_metrics = eval_one_epoch(model, val_loader, loss_fn, device, cfg.train.metrics)
 
-            # Scheduler step
+            # --- Scheduler step ---
             if scheduler:
                 if isinstance(scheduler, optim.lr_scheduler.ReduceLROnPlateau):
                     scheduler.step(val_metrics["loss"])
                 else:
                     scheduler.step()
 
-            # Log metrics to MLflow
+            # --- Log metrics ---
             for key in train_metrics:
                 mlflow.log_metric(f"train_{key}", train_metrics[key], step=epoch)
                 mlflow.log_metric(f"val_{key}", val_metrics[key], step=epoch)
                 results[f"train_{key}"].append(train_metrics[key])
                 results[f"val_{key}"].append(val_metrics[key])
 
-            # Print metrics
+            # --- Print metrics ---
             train_str = ", ".join([f"{k} {v:.4f}" for k, v in train_metrics.items()])
             val_str = ", ".join([f"{k} {v:.4f}" for k, v in val_metrics.items()])
             print(f"Epoch {epoch+1}: Train: {train_str}")
             print(f"        Val: {val_str}\n")
 
-            # Early stopping + guardar mejor modelo en MLflow
-            if val_metrics["loss"] < best_model_loss:
-                best_model_loss = val_metrics["loss"]
-                mlflow.pytorch.log_model(model, artifact_path="checkpoints")
-
+            # --- Early stopping & best model logging ---
+            best_model_loss = update_best_model(model, val_metrics["loss"], best_model_loss, cfg.outputs.local.mlflow.artifact_dir)
             early_stopper(val_metrics["loss"])
             if early_stopper.early_stop:
                 print(f"[INFO] Early stopping at epoch {epoch+1}")
                 break
 
-        # Plot and log loss curve inside MLflow
-        plt.figure(figsize=(10, 5))
-        plt.plot(results["train_loss"], label="train_loss")
-        plt.plot(results["val_loss"], label="val_loss")
-        plt.xlabel("Epoch")
-        plt.ylabel("Loss")
-        plt.legend()
-        plt.tight_layout()
-        plot_path = Path("loss_curve.png")
-        plt.savefig(plot_path)
-        plt.close()
+        # --- Log loss curve ---
+        plot_path = log_loss_curve(results)
         mlflow.log_artifact(plot_path, artifact_path="plots")
+        plot_path.unlink()  # remove local temp file
 
-    # Upload to S3 if using AWS
+    # --- Upload to S3 if AWS ---
     if cfg.outputs.mode == "aws":
         upload_folder_to_s3(
             mlflow_dir, cfg.dataset.aws.s3_bucket, f"{cfg.outputs.aws.s3_prefix}/mlruns"
