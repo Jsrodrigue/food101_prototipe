@@ -116,7 +116,7 @@ def train_mlflow(model, train_loader, val_loader, optimizer, loss_fn, cfg, devic
     # --- Scheduler setup ---
     scheduler = None
     if cfg.train.scheduler.type == "ReduceLROnPlateau":
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", patience=2)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", patience=cfg.train.scheduler.patience)
     elif cfg.train.scheduler.type == "StepLR":
         scheduler = optim.lr_scheduler.StepLR(
             optimizer,

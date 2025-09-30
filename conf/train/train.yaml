@@ -14,6 +14,7 @@ scheduler:
   type: None                 # Options: None, ReduceLROnPlateau, StepLR
   step_size: 5
   gamma: 0.5
+  patience: 2
 
 metrics: ["accuracy", "precision_macro", "recall_macro", "f1_macro"]
 
