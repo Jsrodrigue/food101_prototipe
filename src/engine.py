@@ -1,28 +1,31 @@
 # src/train_engine.py
 
-import torch
-from torch import optim
-from pathlib import Path
-import mlflow
-from tqdm import tqdm
 import datetime
-from hydra.utils import get_original_cwd
-from .metrics import compute_metrics
 import json
-from .utils import (
+from pathlib import Path
+
+import mlflow
+import torch
+from hydra.utils import get_original_cwd
+from torch import optim
+from tqdm import tqdm
+
+from .utils.metrics import compute_metrics
+from .utils.mlflow_utils import (
     log_hyperparams_mlflow,
-    set_seed,
-    upload_folder_to_s3,
-    log_loss_curve, 
+    log_loss_curve_mlflow,
     update_best_model,
-    log_loss_curve_mlflow
 )
+from .utils.plot_utils import log_loss_curve
+from .utils.s3_utils import upload_folder_to_s3
+from .utils.seed_utils import set_seed
 
 
 class EarlyStopping:
     """
     Early stops the training if validation loss doesn't improve after a given patience.
     """
+
     def __init__(self, patience=5, verbose=False, delta=0.0):
         self.patience = patience
         self.verbose = verbose
@@ -44,6 +47,7 @@ class EarlyStopping:
 
 
 # -------------------- TRAIN & EVAL -------------------- #
+
 
 def train_step(model, dataloader, loss_fn, optimizer, device, metrics_list=None):
     """
@@ -102,8 +106,8 @@ def eval_one_epoch(model, dataloader, loss_fn, device, metrics_list=None):
     return metrics_dict
 
 
-
 # -------------------- MAIN TRAIN MLflow -------------------- #
+
 
 def train_mlflow(model, train_loader, val_loader, optimizer, loss_fn, cfg, device=None):
     """
@@ -116,7 +120,9 @@ def train_mlflow(model, train_loader, val_loader, optimizer, loss_fn, cfg, devic
     # --- Scheduler setup ---
     scheduler = None
     if cfg.train.scheduler.type == "ReduceLROnPlateau":
-        scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode="min", patience=cfg.train.scheduler.patience)
+        scheduler = optim.lr_scheduler.ReduceLROnPlateau(
+            optimizer, mode="min", patience=cfg.train.scheduler.patience
+        )
     elif cfg.train.scheduler.type == "StepLR":
         scheduler = optim.lr_scheduler.StepLR(
             optimizer,
@@ -126,7 +132,9 @@ def train_mlflow(model, train_loader, val_loader, optimizer, loss_fn, cfg, devic
 
     # --- MLflow setup ---
     mlflow_dir = Path(get_original_cwd()) / (
-        cfg.outputs.local.mlflow.path if cfg.outputs.mode == "local" else cfg.outputs.aws.mlflow.path
+        cfg.outputs.local.mlflow.path
+        if cfg.outputs.mode == "local"
+        else cfg.outputs.aws.mlflow.path
     )
     mlflow_dir.mkdir(parents=True, exist_ok=True)
     mlflow.set_tracking_uri(mlflow_dir.resolve().as_uri())
@@ -136,7 +144,9 @@ def train_mlflow(model, train_loader, val_loader, optimizer, loss_fn, cfg, devic
         else cfg.outputs.aws.mlflow.experiment_name
     )
     mlflow.set_experiment(exp_name)
-    run_name = cfg.outputs.run_name or datetime.datetime.now().strftime("run_%Y%m%d_%H%M%S")
+    run_name = cfg.outputs.run_name or datetime.datetime.now().strftime(
+        "run_%Y%m%d_%H%M%S"
+    )
 
     early_stopper = EarlyStopping(patience=cfg.train.early_stop_patience, verbose=True)
     best_model_loss = float("inf")
@@ -151,8 +161,12 @@ def train_mlflow(model, train_loader, val_loader, optimizer, loss_fn, cfg, devic
 
         for epoch in tqdm(range(cfg.train.epochs), desc="Training"):
             # --- TRAIN & VALIDATION ---
-            train_metrics = train_step(model, train_loader, loss_fn, optimizer, device, cfg.train.metrics)
-            val_metrics = eval_one_epoch(model, val_loader, loss_fn, device, cfg.train.metrics)
+            train_metrics = train_step(
+                model, train_loader, loss_fn, optimizer, device, cfg.train.metrics
+            )
+            val_metrics = eval_one_epoch(
+                model, val_loader, loss_fn, device, cfg.train.metrics
+            )
 
             # --- Scheduler step ---
             if scheduler:

@@ -10,7 +10,7 @@ import boto3
 from src.models import EfficientNetModel, MobileNetV2Model
 from src.data_setup import create_dataloaders, get_transforms, download_s3_folder
 from src.engine import train_mlflow
-from src.utils import set_seed
+from src.utils.seed_utils import set_seed
 
 @hydra.main(version_base=None, config_path="../conf", config_name="config.yaml")
 def main(cfg: DictConfig):

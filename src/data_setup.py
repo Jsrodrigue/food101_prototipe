@@ -8,7 +8,7 @@ from torch.utils.data import DataLoader, Subset
 from torchvision import datasets, transforms
 from torchvision.transforms import TrivialAugmentWide
 
-from .utils import set_seed
+from .utils.seed_utils import set_seed
 
 NUM_WORKERS = os.cpu_count()
 
@@ -145,6 +145,7 @@ def get_data_path(cfg):
 
         # Function to recursively download S3 folder to local
 
+
 def download_s3_folder(bucket, prefix, local_path: Path, s3):
     """
     Recursively download all files from an S3 folder (prefix) to a local path.
@@ -175,7 +176,7 @@ def download_s3_folder(bucket, prefix, local_path: Path, s3):
                 continue
 
             # Create relative path inside local_path
-            relative_path = Path("/".join(key.split("/")[1:]))  
+            relative_path = Path("/".join(key.split("/")[1:]))
             file_path = local_path / relative_path
 
             # Skip if file already exists
@@ -190,4 +191,6 @@ def download_s3_folder(bucket, prefix, local_path: Path, s3):
             s3.download_file(bucket, key, str(file_path))
             downloaded_count += 1
 
-    print(f"[INFO] S3 download completed. Downloaded {downloaded_count} files, skipped {skipped_count} existing files.")
+    print(
+        f"[INFO] S3 download completed. Downloaded {downloaded_count} files, skipped {skipped_count} existing files."
+    )
