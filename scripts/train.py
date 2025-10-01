@@ -7,8 +7,8 @@ from torch import nn, optim
 from torchvision.models import EfficientNet_B0_Weights, MobileNet_V2_Weights
 import boto3
 
-from models import EfficientNetModel, MobileNetV2Model
-from src.data_setup import create_dataloaders, get_transforms, download_s3_folder, get_data_path
+from src.models import EfficientNetModel, MobileNetV2Model
+from src.data_setup import create_dataloaders, get_transforms, download_s3_folder
 from src.engine import train_mlflow
 from src.utils import set_seed
 
@@ -88,7 +88,7 @@ def main(cfg: DictConfig):
 
     # ---------------- TRAIN ----------------
     print("[INFO] Starting training...")
-    results = train_mlflow(model.model, train_loader, val_loader, optimizer, loss_fn, cfg, device)
+    train_mlflow(model.model, train_loader, val_loader, optimizer, loss_fn, cfg, device)
 
    
 if __name__ == "__main__":

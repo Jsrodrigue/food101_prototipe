@@ -1,0 +1,23 @@
+{
+    "best_epoch": 21,
+    "metrics": {
+        "accuracy": 0.85,
+        "precision_macro": 0.8601082251082252,
+        "recall_macro": 0.85,
+        "f1_macro": 0.8497118017861052,
+        "loss": 0.6993122100830078
+    },
+    "hyperparameters": {
+        "model_name": "efficientnet",
+        "version": "b0",
+        "pretrained": true,
+        "optimizer_lr": 0.005,
+        "batch_size": 64,
+        "scheduler_type": "ReduceLROnPlateau",
+        "unfreeze_layers": 3,
+        "augmentation": "TrivialAugmentWide",
+        "epochs": 35,
+        "subset_percentage": 0.9,
+        "loss_fn": null
+    }
+}

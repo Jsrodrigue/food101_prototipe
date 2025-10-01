@@ -1,0 +1,23 @@
+{
+    "best_epoch": 15,
+    "metrics": {
+        "accuracy": 0.78,
+        "precision_macro": 0.783953823953824,
+        "recall_macro": 0.78,
+        "f1_macro": 0.7754727281662266,
+        "loss": 0.6007687300443649
+    },
+    "hyperparameters": {
+        "model_name": "mobilenet",
+        "version": "b0",
+        "pretrained": true,
+        "optimizer_lr": 0.0007,
+        "batch_size": 32,
+        "scheduler_type": "ReduceLROnPlateau",
+        "unfreeze_layers": 3,
+        "augmentation": "TrivialAugmentWide",
+        "epochs": 35,
+        "subset_percentage": 1,
+        "loss_fn": null
+    }
+}
