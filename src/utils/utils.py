@@ -1,6 +1,37 @@
+# src/utils.py
 import argparse
+import json
+import os
+import random
+import shutil
+from pathlib import Path
 
-from torch import cuda
+import boto3
+import matplotlib.pyplot as plt
+import mlflow
+import numpy as np
+import torch
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# -------------------- LOGGING & PLOTTING -------------------- #
+
+
+
+
+
+
 
 
 def get_test_args():
@@ -35,7 +66,7 @@ def get_test_args():
     parser.add_argument(
         "--device",
         type=str,
-        default="cuda" if cuda.is_available() else "cpu",
+        default="cuda" if torch.cuda.is_available() else "cpu",
         help="Device to run models on",
     )
     parser.add_argument(

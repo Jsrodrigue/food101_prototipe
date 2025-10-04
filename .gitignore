@@ -14,6 +14,6 @@ mlflow_aws/
 .tmp.driveupload/
 key.pem
 multirun/
-tmp_data
+data_s3/
 tmp_experiment/
 makefile

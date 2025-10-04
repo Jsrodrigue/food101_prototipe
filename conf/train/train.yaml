@@ -1,7 +1,7 @@
 seed: 42
 batch_size: 64
 epochs: 2
-loss: CrossEntropyLoss
+loss_fn: CrossEntropyLoss
 optimizer: 
   name: adam
   lr: 0.001

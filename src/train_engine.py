@@ -1,12 +1,10 @@
 # src/train_engine.py
 
-import datetime
 import json
 from pathlib import Path
 
 import mlflow
 import torch
-from hydra.utils import get_original_cwd
 from torch import optim
 from tqdm import tqdm
 
@@ -15,10 +13,12 @@ from .utils.mlflow_utils import (
     log_hyperparams_mlflow,
     log_loss_curve_mlflow,
     update_best_model,
+    setup_mlflow
 )
 from .utils.plot_utils import log_loss_curve
 from .utils.s3_utils import upload_folder_to_s3
 from .utils.seed_utils import set_seed
+from .utils.eval_utils import eval_one_epoch
 
 
 class EarlyStopping:
@@ -46,7 +46,7 @@ class EarlyStopping:
                 self.early_stop = True
 
 
-# -------------------- TRAIN & EVAL -------------------- #
+# -------------------- TRAIN STEP -------------------- #
 
 
 def train_step(model, dataloader, loss_fn, optimizer, device, metrics_list=None):
@@ -79,32 +79,6 @@ def train_step(model, dataloader, loss_fn, optimizer, device, metrics_list=None)
     return metrics_dict
 
 
-def eval_one_epoch(model, dataloader, loss_fn, device, metrics_list=None):
-    """
-    Evaluation step (used for validation or test).
-    """
-    model.eval()
-    total_loss = 0.0
-    all_preds, all_labels = [], []
-
-    with torch.inference_mode():
-        for X, y in dataloader:
-            X, y = X.to(device), y.to(device)
-            y = y.long()
-            outputs = model(X)
-            loss = loss_fn(outputs, y)
-
-            total_loss += loss.item()
-            all_preds.append(outputs)
-            all_labels.append(y)
-
-    avg_loss = total_loss / len(dataloader)
-    preds = torch.cat(all_preds).argmax(dim=1)
-    labels = torch.cat(all_labels)
-    metrics_dict = compute_metrics(labels, preds, metrics_list or ["accuracy"])
-    metrics_dict["loss"] = avg_loss
-    return metrics_dict
-
 
 # -------------------- MAIN TRAIN MLflow -------------------- #
 
@@ -131,22 +105,8 @@ def train_mlflow(model, train_loader, val_loader, optimizer, loss_fn, cfg, devic
         )
 
     # --- MLflow setup ---
-    mlflow_dir = Path(get_original_cwd()) / (
-        cfg.outputs.local.mlflow.path
-        if cfg.outputs.mode == "local"
-        else cfg.outputs.aws.mlflow.path
-    )
-    mlflow_dir.mkdir(parents=True, exist_ok=True)
-    mlflow.set_tracking_uri(mlflow_dir.resolve().as_uri())
-    exp_name = (
-        cfg.outputs.local.mlflow.experiment_name
-        if cfg.outputs.mode == "local"
-        else cfg.outputs.aws.mlflow.experiment_name
-    )
-    mlflow.set_experiment(exp_name)
-    run_name = cfg.outputs.run_name or datetime.datetime.now().strftime(
-        "run_%Y%m%d_%H%M%S"
-    )
+    mlflow_dir, run_name = setup_mlflow(cfg)
+
 
     early_stopper = EarlyStopping(patience=cfg.train.early_stop_patience, verbose=True)
     best_model_loss = float("inf")

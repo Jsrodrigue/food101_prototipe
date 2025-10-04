@@ -1,5 +1,8 @@
 mode: local
-path: data/dataset         # for local use
+path: data/dataset
+train_dir: data/dataset/train        
+val_dir: data/dataset/val
+test_dir: data/dataset/test
 url: ""                    
 overwrite: false   
 aws:       
@@ -7,4 +10,4 @@ aws:
   s3_prefix: data/dataset/        
   train_prefix: data/dataset/train        
   val_prefix: data/dataset/val
-
+  test_prefix: data/dataset/test

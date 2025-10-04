@@ -9,7 +9,7 @@
     },
     "hyperparameters": {
         "model_name": "mobilenet",
-        "version": "b0",
+        "version": "v1",
         "pretrained": true,
         "optimizer_lr": 0.0003,
         "batch_size": 32,
@@ -18,6 +18,6 @@
         "augmentation": "TrivialAugmentWide",
         "epochs": 35,
         "subset_percentage": 1,
-        "loss_fn": null
+        "loss_fn": "CrossEntropyLoss"
     }
 }

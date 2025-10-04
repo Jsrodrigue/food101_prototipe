@@ -8,7 +8,6 @@ local:
     path: mlruns
     artifact_dir: artifacts
     experiment_name: food101_experiment
-
 aws:
   s3_bucket: food101mini-data
   s3_prefix: outputs

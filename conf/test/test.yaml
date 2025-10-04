@@ -1,0 +1,4 @@
+runs_dir: "selected_models" 
+batch_size: 64          
+save_results: true      
+device: cpu

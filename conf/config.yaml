@@ -2,8 +2,10 @@ defaults:
   - _self_
   - train: train
   - model: mobilenet
+  
   - dataset: dataset
   - outputs: outputs
+  - test: test
 
 hydra:
   run:

@@ -18,6 +18,6 @@
         "augmentation": "TrivialAugmentWide",
         "epochs": 35,
         "subset_percentage": 1,
-        "loss_fn": null
+        "loss_fn": "CrossEntropyLoss"
     }
 }

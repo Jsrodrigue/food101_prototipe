@@ -2,28 +2,16 @@ import os
 import random
 from pathlib import Path
 
-from hydra.utils import get_original_cwd
+import boto3
 from torch import cuda
 from torch.utils.data import DataLoader, Subset
-from torchvision import datasets, transforms
-from torchvision.transforms import TrivialAugmentWide
+from torchvision import datasets
 
+from .utils.s3_utils import download_s3_folder
 from .utils.seed_utils import set_seed
 
 NUM_WORKERS = os.cpu_count()
 
-
-def get_transforms(augmentation=None, base_transform=None):
-    if base_transform is None:
-        base_transform = transforms.Compose([transforms.ToTensor()])
-    train_transform = base_transform
-    if augmentation:
-        if augmentation.lower() == "trivialaugmentwide":
-            train_transform = transforms.Compose([TrivialAugmentWide(), base_transform])
-        else:
-            raise ValueError(f"Unknown augmentation {augmentation}")
-    test_transform = base_transform
-    return train_transform, test_transform
 
 
 def create_dataloader_from_folder(
@@ -81,116 +69,46 @@ def create_dataloader_from_folder(
     return loader, class_names
 
 
-def create_dataloaders(
-    train_dir,
-    test_dir,
-    batch_size,
-    train_transform,
-    test_transform,
-    train_subset_percentage=1.0,
-    seed=42,
-    num_workers=NUM_WORKERS,
-):
+
+def prepare_data(cfg, get_train=True, get_val=True, get_test=True):
     """
-    Create DataLoaders for training and testing/validation.
-
+    Prepares dataset paths according to the configuration.
+    Supports AWS S3 or local datasets, with options to fetch only the desired sets.
+    
     Args:
-        train_dir (str): Path to the training data folder.
-        test_dir (str): Path to the test/validation data folder.
-        batch_size (int): Batch size for both loaders.
-        train_transform (torchvision.transforms): Transformations for training images.
-        test_transform (torchvision.transforms): Transformations for test/validation images.
-        train_subset_percentage (float, optional): Fraction of training data to use.
-        seed (int, optional): Random seed for reproducibility.
-        num_workers (int, optional): Number of worker processes.
-
+        cfg: Full configuration (Hydra / OmegaConf)
+        get_train (bool): Whether to prepare/download the training set
+        get_val (bool): Whether to prepare/download the validation set
+        get_test (bool): Whether to prepare/download the test set
+    
     Returns:
-        train_loader (DataLoader): DataLoader for training.
-        test_loader (DataLoader): DataLoader for testing/validation.
-        class_names (list): List of class names.
+        dict: {'train_dir': Path or None, 'val_dir': Path or None, 'test_dir': Path or None}
+              Paths to the prepared datasets. None if not requested.
     """
-    # Create the training DataLoader
-    train_loader, class_names = create_dataloader_from_folder(
-        train_dir,
-        batch_size,
-        transform=train_transform,
-        subset_percentage=train_subset_percentage,
-        shuffle=True,
-        seed=seed,
-        num_workers=num_workers,
-    )
 
-    # Create the test/validation DataLoader
-    test_loader, _ = create_dataloader_from_folder(
-        test_dir,
-        batch_size,
-        transform=test_transform,
-        shuffle=False,
-        seed=seed,
-        num_workers=num_workers,
-    )
-
-    return train_loader, test_loader, class_names
-
-
-def get_data_path(cfg):
-    """
-    Returns the dataset path depending on the execution mode (local or AWS).
-    """
+    paths = {'train_dir': None, 'val_dir': None, 'test_dir': None}
+    
     if cfg.dataset.mode == "aws":
-        # Instead of syncing every time, use tmp_data folder downloaded by train.py
-        return Path(get_original_cwd()) / "tmp_data"
+        base_dir = Path.cwd() / "data_s3"
+        base_dir.mkdir(parents=True, exist_ok=True)
+        s3 = boto3.client("s3")
+
+        if get_train:
+            download_s3_folder(cfg.dataset.aws.s3_bucket, cfg.dataset.aws.train_prefix, base_dir, s3)
+            paths['train_dir'] = base_dir/ 'dataset' / 'train'
+        if get_val:
+            download_s3_folder(cfg.dataset.aws.s3_bucket, cfg.dataset.aws.val_prefix, base_dir, s3)
+            paths['val_dir'] = base_dir / 'dataset' / 'val'
+        if get_test:
+            download_s3_folder(cfg.dataset.aws.s3_bucket, cfg.dataset.aws.test_prefix, base_dir, s3)
+            paths['test_dir'] = base_dir / 'dataset' / 'test'
+        print(paths)
     else:
-        return Path(get_original_cwd()) / cfg.dataset.path
-
-        # Function to recursively download S3 folder to local
-
-
-def download_s3_folder(bucket, prefix, local_path: Path, s3):
-    """
-    Recursively download all files from an S3 folder (prefix) to a local path.
-    Skips files that already exist locally.
-
-    Args:
-        bucket (str): Name of the S3 bucket.
-        prefix (str): The S3 folder prefix to download.
-        local_path (Path): Local folder where files will be stored.
-        s3 (boto3.client): Boto3 S3 client instance.
-    """
-    # Ensure the base local directory exists
-    local_path.mkdir(parents=True, exist_ok=True)
-
-    paginator = s3.get_paginator("list_objects_v2")
-    downloaded_count = 0
-    skipped_count = 0
-
-    for page in paginator.paginate(Bucket=bucket, Prefix=prefix):
-        if "Contents" not in page:
-            continue
-
-        for obj in page.get("Contents", []):
-            key = obj["Key"]
-
-            # Skip pseudo-directories
-            if key.endswith("/"):
-                continue
-
-            # Create relative path inside local_path
-            relative_path = Path("/".join(key.split("/")[1:]))
-            file_path = local_path / relative_path
-
-            # Skip if file already exists
-            if file_path.exists():
-                skipped_count += 1
-                continue
-
-            # Ensure parent directories exist
-            file_path.parent.mkdir(parents=True, exist_ok=True)
-
-            # Download the file
-            s3.download_file(bucket, key, str(file_path))
-            downloaded_count += 1
-
-    print(
-        f"[INFO] S3 download completed. Downloaded {downloaded_count} files, skipped {skipped_count} existing files."
-    )
+        if get_train:
+            paths['train_dir'] = Path(cfg.dataset.train_dir)
+        if get_val:
+            paths['val_dir'] = Path(cfg.dataset.val_dir)
+        if get_test:
+            paths['test_dir'] = Path(cfg.dataset.test_dir)
+    
+    return paths

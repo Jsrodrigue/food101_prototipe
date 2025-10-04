@@ -1,9 +1,13 @@
-import mlflow
+import datetime
+import json
+import os
 import shutil
-import os 
 from pathlib import Path
-import torch 
-import json 
+
+import mlflow
+import torch
+from hydra.utils import get_original_cwd
+
 
 def log_hyperparams_mlflow(cfg, loss_fn):
     mlflow.log_param("model_name", cfg.model.name)
@@ -18,6 +22,7 @@ def log_hyperparams_mlflow(cfg, loss_fn):
     mlflow.log_param("unfreeze_layers", cfg.train.unfreeze_layers)
     mlflow.log_param("loss_fn", type(loss_fn).__name__)
     mlflow.log_param("augmentation", cfg.train.augmentation)
+
 
 def log_pytorch_model_state_dict_mlflow(model, model_name="model", overwrite=False):
     """
@@ -142,3 +147,39 @@ def log_loss_curve_mlflow(plot_path: Path, artifact_path="plots"):
 
     # Remove local temporary file
     plot_path.unlink()
+
+
+def setup_mlflow(cfg):
+    """
+    Setup MLflow tracking directory and experiment based on configuration.
+
+    Args:
+        cfg: Hydra / OmegaConf configuration containing MLflow settings.
+
+    Returns:
+        mlflow_dir (Path): Path to the MLflow tracking directory.
+        run_name (str): Name of the current run.
+    """
+    # Determine MLflow directory
+    mlflow_dir = Path(get_original_cwd()) / (
+        cfg.outputs.local.mlflow.path
+        if cfg.outputs.mode == "local"
+        else cfg.outputs.aws.mlflow.path
+    )
+    mlflow_dir.mkdir(parents=True, exist_ok=True)
+    mlflow.set_tracking_uri(mlflow_dir.resolve().as_uri())
+
+    # Determine experiment name
+    exp_name = (
+        cfg.outputs.local.mlflow.experiment_name
+        if cfg.outputs.mode == "local"
+        else cfg.outputs.aws.mlflow.experiment_name
+    )
+    mlflow.set_experiment(exp_name)
+
+    # Determine run name
+    run_name = cfg.outputs.run_name or datetime.datetime.now().strftime(
+        "run_%Y%m%d_%H%M%S"
+    )
+
+    return mlflow_dir, run_name
